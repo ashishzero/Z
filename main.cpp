@@ -12,14 +12,14 @@ enum Token_Kind {
 	Token_Kind_MULTIPLY,
 	Token_Kind_DIVIDE,
 
-	Token_Kind_COUNT,
+	Token_Kind_END,
 };
 
 static const String TokenKindNames[] = {
 	"Integer", "Plus", "Minus", "Multiply", "Divide"
 };
 
-static_assert(ArrayCount(TokenKindNames) == Token_Kind_COUNT, "");
+static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
 
 struct Token_Range {
 	umem from;
@@ -27,7 +27,7 @@ struct Token_Range {
 };
 
 union Token_Value {
-	u8  symbol;
+	u32 symbol;
 	u64 integer;
 	r64 floating;
 
@@ -48,6 +48,7 @@ struct Lexer {
 	u8 *   last;
 	u8 *   first;
 	String source;
+	char   error[1024];
 };
 
 void LexWhiteSpace(Lexer *l) {
@@ -63,8 +64,20 @@ void LexWhiteSpace(Lexer *l) {
 	l->cursor = pos;
 }
 
-void LexError(Lexer *l, const char *fmt, ...) {
-	Assert(false);
+void LexToken(Lexer *l, Token *token, Token_Kind kind, u8 *pos) {
+	token->kind       = kind;
+	token->range.from = l->cursor - l->first;
+	token->range.to   = pos - l->first;
+	l->cursor         = pos;
+}
+
+void LexError(Lexer *l, Token *token, u8 *pos, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(l->error, sizeof(l->error), fmt, args);
+	va_end(args);
+
+	LexToken(l, token, Token_Kind_END, pos);
 }
 
 static constexpr u8 CharacterTokenValues[]    = { '+', '-', '*', '/' };
@@ -75,19 +88,21 @@ static_assert(ArrayCount(CharacterTokens) == ArrayCount(CharacterTokenValues), "
 bool LexNext(Lexer *l, Token *token) {
 	LexWhiteSpace(l);
 
-	if (l->cursor >= l->last)
-		return false;
+	if (l->cursor >= l->last) {
+		token->kind       = Token_Kind_END;
+		token->range.from = l->last - l->first;
+		token->range.to   = token->range.from;
+		memset(&token->value, 0, sizeof(token->value));
+		return true;
+	}
 
 	u8 match = *l->cursor;
 
 	for (umem index = 0; index < ArrayCount(CharacterTokenValues); ++index) {
 		if (match == CharacterTokenValues[index]) {
-			token->kind         = CharacterTokens[index];
-			token->range.from   = l->cursor - l->first;
-			token->range.to     = token->range.from + 1;
+			Token_Kind kind = CharacterTokens[index];
+			LexToken(l, token, kind, l->cursor + 1);
 			token->value.symbol = match;
-
-			l->cursor += 1;
 			return true;
 		}
 	}
@@ -113,7 +128,8 @@ bool LexNext(Lexer *l, Token *token) {
 		}
 
 		if (count > 255) {
-			LexError(l, "bad number");
+			token->kind = Token_Kind_END;
+			LexError(l, token, pos, "integer literal is too big");
 			return false;
 		}
 
@@ -125,21 +141,45 @@ bool LexNext(Lexer *l, Token *token) {
 		u64 value    = strtoull(buff, &endptr, 10);
 
 		if (endptr != buff + count || errno == ERANGE) {
-			LexError(l, "bad number");
+			token->kind = Token_Kind_END;
+			LexError(l, token, pos, "integer literal is too big");
 			return false;
 		}
 
-		token->kind          = Token_Kind_INTEGER;
-		token->range.from    = l->cursor - l->first;
-		token->range.to      = pos - l->first;
+		LexToken(l, token, Token_Kind_INTEGER, pos);
 		token->value.integer = value;
-
-		l->cursor = pos;
 
 		return true;
 	}
 
-	LexError(l, "bad character");
+	// Advance UTF-8
+
+	u32 codepoint = *l->cursor;
+
+	int advance;
+	if ((codepoint & 0x80) == 0x00) {
+		advance = 1;
+	} else if ((codepoint & 0xe0) == 0xc0) {
+		advance = 2;
+	} else if ((codepoint & 0xf0) == 0xe0) {
+		advance = 3;
+	} else if ((codepoint & 0xF8) == 0xf0) {
+		advance = 4;
+	}
+
+	if (l->cursor + advance >= l->last) {
+		advance = (int)(l->last - l->cursor);
+	}
+
+	u8 *pos = l->cursor + 1;
+
+	for (int i = 1; i < advance; ++i) {
+		if ((pos[i] & 0xc0) == 0x80) {
+			pos += 1;
+		}
+	}
+
+	LexError(l, token, pos, "bad character: \"%.*s\"", advance, l->cursor);
 
 	return false;
 }
@@ -152,261 +192,241 @@ void LexDump(FILE *out, const Token &token) {
 		fprintf(out, "(%zu) ", token.value.integer);
 	} else if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS ||
 		token.kind == Token_Kind_MULTIPLY || token.kind == Token_Kind_MULTIPLY) {
-		fprintf(out, "(%c) ", token.value.symbol);
+		fprintf(out, "(%c) ", (char)token.value.symbol);
 	}
 }
 
-int main(int argc, const char *argv[]) {
-	String input = " 4 + 5 * 3 -2 ";
+void Error(struct Parser *parser, const char *fmt, ...) {
+	Unimplemented();
+}
 
-	Lexer l;
-	l.cursor = input.data;
-	l.first  = l.cursor;
-	l.last   = l.first + input.count;
-	l.source = "-generated-";
+struct Arena {
 
-	Token token;
-	while (LexNext(&l, &token)) {
-		LexDump(stdout, token);
-		fprintf(stdout, "\n");
+};
+
+void *PushSize(Arena *arena, umem size, umem alignment) {
+	return malloc(size);
+}
+
+void *operator new(umem size, Arena *arena) noexcept {
+	return PushSize(arena, size, sizeof(umem));
+}
+
+void operator delete(void *ptr, Arena *arena) noexcept {
+}
+
+enum Expr_Kind {
+	Expr_Kind_LITERAL,
+	Expr_Kind_UNARY_OPERATOR,
+	Expr_Kind_BINARY_OPERATOR,
+
+	Expr_Kind_COUNT
+};
+
+static const String ExprKindNames[] = {
+	"Literal", "Unary Operator", "Binary Operator"
+};
+static_assert(ArrayCount(ExprKindNames) == Expr_Kind_COUNT, "");
+
+struct Expr_Type {
+};
+
+struct Expr {
+	Expr_Kind   kind  = Expr_Kind_COUNT;
+	Expr_Type * type  = nullptr;
+	Token_Range range = { 0,0 };
+
+	Expr(Expr_Kind _kind): kind(_kind) {}
+};
+
+struct Expr_Literal : Expr {
+	Token_Value value;
+
+	Expr_Literal(): Expr(Expr_Kind_LITERAL) {}
+};
+
+struct Expr_Unary_Operator : Expr {
+	Expr *child = nullptr;
+	u32 symbol  = 0;
+
+	Expr_Unary_Operator(): Expr(Expr_Kind_UNARY_OPERATOR) {}
+};
+
+struct Expr_Binary_Operator : Expr {
+	Expr *left  = nullptr;
+	Expr *right = nullptr;
+	u32  symbol = 0;
+
+	Expr_Binary_Operator(): Expr(Expr_Kind_BINARY_OPERATOR) {}
+};
+
+static constexpr uint PARSER_MAX_LOOKUP = 4;
+
+struct Parser {
+	Lexer  lexer;
+	Token  lookup[PARSER_MAX_LOOKUP];
+	Arena *arena;
+};
+
+Token PeekToken(Parser *parser, uint index = 0) {
+	Assert(index <= PARSER_MAX_LOOKUP);
+	return parser->lookup[index];
+}
+
+void _AdvanceToken(Parser *parser) {
+	for (uint i = 0; i < PARSER_MAX_LOOKUP - 1; ++i) {
+		parser->lookup[i] = parser->lookup[i + 1];
 	}
 
-	return 0;
-}
-
-#if 0
-bool is_number(u8 ch) {
-	return ch >= '0' && ch <= '9';
-}
-
-bool is_whitespace(u8 ch) {
-	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
-}
-
-String token_number(String input) {
-	imem pos = 0;
-
-	for (; pos < input.count; ++pos) {
-		if (!is_number(input[pos]))
-			break;
+	Token *dst = &parser->lookup[PARSER_MAX_LOOKUP - 1];
+	if (!LexNext(&parser->lexer, dst)) {
+		Error(parser, "");
 	}
+}
 
-	String result = String(input.data, pos);
+void AdvanceToken(Parser *parser) {
+#ifdef BUILD_DEBUG
+	LexDump(stdout, parser->lookup[0]);
+#endif
+	_AdvanceToken(parser);
+}
 
+Token NextToken(Parser *parser) {
+	Token result = parser->lookup[0];
+	AdvanceToken(parser);
 	return result;
 }
 
-enum Token_Kind {
-	TOKEN_INTEGER,
-	TOKEN_PLUS,
-	TOKEN_MINUS,
-	TOKEN_MULTIPLY,
-	TOKEN_DIVIDE,
-	TOKEN_COUNT
-};
+Expr *ParseTerm(Parser *parser) {
+	Arena *arena = parser->arena;
 
-const char *TokenNames[] = {
-	"integer", "plus", "minus", "multiply", "divide"
-};
+	Token token = NextToken(parser);
 
-static_assert(ArrayCount(TokenNames) == TOKEN_COUNT, "");
+	if (token.kind == Token_Kind_INTEGER) {
+		auto expr = new(arena) Expr_Literal;
 
-struct Token {
-	Token_Kind kind;
-	String     source;
-	uint64_t   integer;
-};
+		// @Todo: Set type
+		expr->range = token.range;
+		//expr->type = ? ;
+		expr->value = token.value;
 
-struct Lexer {
-	Token  token;
-	String input;
-	imem   cursor;
-
-	u8 scratch[1024];
-};
-
-static constexpr u8 Operators[] = { '+', '-', '*', '/'};
-static constexpr Token_Kind OperatorTokens[] = { TOKEN_PLUS, TOKEN_MINUS, TOKEN_MULTIPLY, TOKEN_DIVIDE };
-
-static_assert(ArrayCount(OperatorTokens) == ArrayCount(Operators), "");
-
-void skip_whitespace(Lexer *lexer) {
-	for (; lexer->cursor < lexer->input.count; ++lexer->cursor) {
-		if (!is_whitespace(lexer->input[lexer->cursor])) {
-			return;
-		}
-	}
-}
-
-bool lex(Lexer *lexer) {
-	skip_whitespace(lexer);
-
-	if (lexer->cursor >= lexer->input.count)
-		return false;
-
-	Token *token = &lexer->token;
-	imem cursor  = lexer->cursor;
-	String input = lexer->input; // substring
-
-	assert(input.count); // todo: error check
-
-	u8 ch = input[cursor];
-
-	for (umem index = 0; index < ArrayCount(Operators); ++index) {
-		u8 match = Operators[index];
-		if (match == ch) {
-			token->kind = OperatorTokens[index];
-			token->source = String(input.data + cursor, 1);
-			lexer->cursor += 1;
-			return true;
-		}
+		//expr->type = ?
+		return expr;
 	}
 
-	if (is_number(ch)) {
-		String number = String(lexer->input.data + cursor, lexer->input.count - cursor);
-		number = token_number(number);
+	if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS) {
+		auto expr = new(arena) Expr_Unary_Operator;
 
-		assert(number.count < 100);
+		expr->child  = ParseTerm(parser);
+		expr->range  = token.range;
+		expr->type   = expr->child->type;
+		expr->symbol = token.value.symbol;
 
-		memcpy(lexer->scratch, number.data, number.count);
-		lexer->scratch[number.count] = 0;
-
-		char *endptr = nullptr;
-		token->integer = (uint64_t)strtoull((char *)lexer->scratch, &endptr, 10);
-
-		assert(number.count == (endptr - (char *)lexer->scratch));
-
-		token->kind = TOKEN_INTEGER;
-		token->source = number;
-
-		lexer->cursor += number.count;
-
-		return true;
+		return expr;
 	}
 
-	assert(false); // unimplemented
+	Error(parser, "");
+
+	return nullptr;
 }
 
-enum Code_Node_Kind {
-	CODE_BINARY_OPERATOR,
-	CODE_INTEGER_LITERAL,
-};
+static constexpr Token_Kind BinaryOpTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
 
-struct Code_Node {
-	Code_Node_Kind kind;
-	Code_Node(){}
-	Code_Node(Code_Node_Kind _kind): kind(_kind){}
-};
+static int BinaryOpPrecedence[Token_Kind_END];
 
-struct Code_Node_Binary_Operator : Code_Node {
-	Code_Node *left;
-	Code_Node *right;
+Expr *ParseExpression(Parser *parser, int prev_prec = -1) {
+	Arena *arena = parser->arena;
 
-	u8    symbol;
+	Expr *expr   = ParseTerm(parser);
 
-	Code_Node_Binary_Operator(): Code_Node(CODE_BINARY_OPERATOR), left(nullptr), right(nullptr) {}
-};
+	for (Token token = PeekToken(parser); 
+		token.kind != Token_Kind_END;
+		token = PeekToken(parser)) {
 
-struct Code_Node_Integer_Literal :Code_Node {
-	uint64_t value;
+		int prec = BinaryOpPrecedence[token.kind];
 
-	Code_Node_Integer_Literal(): Code_Node(CODE_INTEGER_LITERAL) {}
-};
+		if (prec <= prev_prec)
+			break;
 
-void expect(Lexer *lexer, Token_Kind kind) {
-	if (lex(lexer)) {
-		assert(lexer->token.kind == kind);
-		return;
-	}
+		for (Token_Kind match : BinaryOpTokens) {
+			if (match == token.kind) {
+				AdvanceToken(parser);
 
-	assert(false);
-}
+				auto op  = new(arena) Expr_Binary_Operator;
 
-bool accept(Lexer *lexer, Token_Kind kind) {
-	return lexer->token.kind == kind;
-}
+				op->left   = expr;
+				op->right  = ParseExpression(parser, prec);
+				op->range  = token.range;
+				op->symbol = token.value.symbol;
 
-Code_Node *parse_subexpression(Lexer *lexer) {
-	expect(lexer, TOKEN_INTEGER);
-
-	auto node = new Code_Node_Integer_Literal();
-	node->value = lexer->token.integer;
-
-	return node;
-}
-
-int operator_prec(Token_Kind kind) {
-	if (kind == TOKEN_PLUS) return 1;
-	if (kind == TOKEN_MINUS) return 1;
-	if (kind == TOKEN_MULTIPLY) return 2;
-	if (kind == TOKEN_DIVIDE) return 2;
-	return 0;
-}
-
-Code_Node *parse_expression(Lexer *lexer, int prec = -1) {
-	Code_Node *left = parse_subexpression(lexer);
-
-	while (lex(lexer)) {
-		if (accept(lexer, TOKEN_PLUS) || accept(lexer, TOKEN_MINUS) ||
-			accept(lexer, TOKEN_MULTIPLY) || accept(lexer, TOKEN_DIVIDE)) {
-
-			int op_prec = operator_prec(lexer->token.kind);
-
-			if (op_prec <= prec)
+				expr = op;
 				break;
-
-			auto node = new Code_Node_Binary_Operator;
-			node->symbol = lexer->token.source[0];
-			node->left = left;
-			node->right = parse_expression(lexer, op_prec);
-
-			left = node;
-		} else {
-			assert(false);
+			}
 		}
 	}
 
-	return left;
+	return expr;
 }
 
-void dump(Code_Node *root, int indent = 0) {
-	for (int i = 0; i < indent; ++i) {
-		printf("  ");
-	}
+void ExprDump(FILE *out, Expr *root, uint indent = 0) {
+	for (uint i = 0; i < indent; ++i)
+		fprintf(out, "    ");
+
+	const String name = ExprKindNames[root->kind];
+	fprintf(out, "." StrFmt " ", StrArg(name));
 
 	switch (root->kind) {
-	case CODE_INTEGER_LITERAL:
+	case Expr_Kind_LITERAL:
 	{
-		auto node = (Code_Node_Integer_Literal *)root;
-		printf("Integer: %zu\n", node->value);
-		break;
-	}
+		auto expr = (Expr_Literal *)root;
+		fprintf(out, "(%zu)", expr->value.integer);
+		fprintf(out, "\n");
+	} break;
 
-	case CODE_BINARY_OPERATOR:
+	case Expr_Kind_UNARY_OPERATOR:
 	{
-		auto node = (Code_Node_Binary_Operator *)root;
-		printf("Binary Operator: %c\n", node->symbol);
-		dump(node->left, indent + 1);
-		dump(node->right, indent + 1);
-		break;
-	}
+		auto expr = (Expr_Unary_Operator *)root;
+		fprintf(out, "(%c)", (char)expr->symbol);
+		fprintf(out, "\n");
+		ExprDump(out, expr->child, indent + 1);
+	} break;
+
+	case Expr_Kind_BINARY_OPERATOR:
+	{
+		auto expr = (Expr_Binary_Operator *)root;
+		fprintf(out, "(%c)", (char)expr->symbol);
+		fprintf(out, "\n");
+		ExprDump(out, expr->left, indent + 1);
+		ExprDump(out, expr->right, indent + 1);
+	} break;
 	}
 }
 
 int main(int argc, const char *argv[]) {
-	static Code_Node * stack[2048];
-
 	String input = " 4 + 5 * 3 -2 ";
 
-	Lexer lexer;
-	lexer.input = input;
-	lexer.cursor = 0;
+	BinaryOpPrecedence[Token_Kind_PLUS]     = 10;
+	BinaryOpPrecedence[Token_Kind_MINUS]    = 10;
+	BinaryOpPrecedence[Token_Kind_MULTIPLY] = 20;
+	BinaryOpPrecedence[Token_Kind_DIVIDE]   = 20;
 
-	umem top = 0;
+	Parser parser;
+	parser.lexer.first  = input.begin();
+	parser.lexer.last   = input.end();
+	parser.lexer.cursor = parser.lexer.first;
+	parser.lexer.source = "-generated-";
 
-	Code_Node *node = parse_expression(&lexer);
-	dump(node);
+	parser.arena = nullptr;
+
+	for (uint i = 0; i < PARSER_MAX_LOOKUP; ++i) {
+		_AdvanceToken(&parser);
+	}
+
+	Expr *expr = ParseExpression(&parser);
+
+	fprintf(stdout, "\n");
+
+	ExprDump(stdout, expr);
 
 	return 0;
 }
-#endif
