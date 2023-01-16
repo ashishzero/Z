@@ -5,9 +5,14 @@
 
 #include <stdlib.h>
 
-void Error(struct Parser *parser, const char *fmt, ...) {
-	Unimplemented();
-}
+constexpr int PARSER_DUMP_TOKEN = 0x1;
+constexpr int PARSER_DUMP_EXPR  = 0x2;
+
+#ifdef BUILD_DEBUG
+static constexpr u32 ParserDumpFlags = 0xff;
+#else
+static constexpr u32 ParserDumpFlags = 0;
+#endif
 
 enum Expr_Kind {
 	Expr_Kind_Literal,
@@ -52,6 +57,7 @@ struct Parser {
 	Lexer    lexer;
 	Token    lookup[PARSER_MAX_LOOKUP];
 	M_Arena *arena;
+	String   source;
 };
 
 void *OutOfMemory() {
@@ -82,6 +88,93 @@ Expr *ExprInit(Expr *expr, Expr_Kind kind, Token_Range range) {
 	return expr;
 }
 
+enum Log_Kind {
+	Log_Kind_INFO,
+	Log_Kind_WARNING,
+	Log_Kind_ERROR,
+	Log_Kind_FATAL
+};
+
+void Log(Parser *parser, umem pos_0, umem pos_1, FILE *out, Log_Kind kind, const char *fmt, va_list args) {
+	umem r = 1, c = 0;
+
+	u8 *data = parser->lexer.first;
+	for (umem pos = 0; pos < pos_0; ++pos) {
+		if (data[pos] != '\n') {
+			c += 1;
+		} else {
+			c = 0;
+			r += 1;
+		}
+	}
+
+	static const char *LogKindNames[] = { "info", "warning","error", "error" };
+
+	fprintf(out, StrFmt "(%zu,%zu): %s: ", StrArg(parser->source), r, c, LogKindNames[kind]);
+	vfprintf(out, fmt, args);
+	fprintf(out, "\n");
+
+	if (kind == Log_Kind_FATAL) {
+		exit(1);
+	}
+}
+
+void Info(Parser *parser, Token *token, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, token->range.from, token->range.to, stdout, Log_Kind_INFO, fmt, args);
+	va_end(args);
+}
+
+void Info(Parser *parser, Expr *expr, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, expr->range.from, expr->range.to, stdout, Log_Kind_INFO, fmt, args);
+	va_end(args);
+}
+
+void Warning(Parser *parser, Token *token, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_WARNING, fmt, args);
+	va_end(args);
+}
+
+void Warning(Parser *parser, Expr *expr, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_WARNING, fmt, args);
+	va_end(args);
+}
+
+void Error(Parser *parser, Token *token, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_ERROR, fmt, args);
+	va_end(args);
+}
+
+void Error(Parser *parser, Expr *expr, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_ERROR, fmt, args);
+	va_end(args);
+}
+
+void Fatal(Parser *parser, Token *token, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_FATAL, fmt, args);
+	va_end(args);
+}
+
+void Fatal(Parser *parser, Expr *expr, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_FATAL, fmt, args);
+	va_end(args);
+}
+
 #define AllocateExpr(parser, type, range) (Expr_##type *)ExprInit((Expr *)Allocate(parser, sizeof(Expr_##type), alignof(Expr_##type)), Expr_Kind_##type, range)
 
 Token PeekToken(Parser *parser, uint index = 0) {
@@ -94,16 +187,17 @@ void _AdvanceToken(Parser *parser) {
 		parser->lookup[i] = parser->lookup[i + 1];
 	}
 
-	Token *dst = &parser->lookup[PARSER_MAX_LOOKUP - 1];
-	if (!LexNext(&parser->lexer, dst)) {
-		Error(parser, "");
+	Token *token = &parser->lookup[PARSER_MAX_LOOKUP - 1];
+	if (!LexNext(&parser->lexer, token)) {
+		Fatal(parser, token, parser->lexer.error);
 	}
 }
 
 void AdvanceToken(Parser *parser) {
-#ifdef BUILD_DEBUG
-	LexDump(stdout, parser->lookup[0]);
-#endif
+	if constexpr (ParserDumpFlags & PARSER_DUMP_TOKEN) {
+		fprintf(stdout, "T");
+		LexDump(stdout, parser->lookup[0]);
+	}
 	_AdvanceToken(parser);
 }
 
@@ -130,7 +224,7 @@ Expr *ParseTerm(Parser *parser) {
 		return expr;
 	}
 
-	Error(parser, "");
+	Fatal(parser, &token, "expected expression");
 
 	return nullptr;
 }
@@ -203,28 +297,51 @@ void ExprDump(FILE *out, Expr *root, uint indent = 0) {
 	}
 }
 
-int main(int argc, const char *argv[]) {
-	String input = " 4 + 5 * 3 -2 ";
+Expr *ParseStatement(Parser *parser) {
+	Expr *expr = ParseExpression(parser);
+
+	if constexpr (ParserDumpFlags & PARSER_DUMP_EXPR) {
+		fprintf(stdout, "\n");
+		ExprDump(stdout, expr);
+	}
+
+	return expr;
+}
+
+void InitParser() {
+	static bool Initialized = false;
+
+	if (Initialized) return;
+	Initialized = true;
 
 	BinaryOpPrecedence[Token_Kind_PLUS]     = 10;
 	BinaryOpPrecedence[Token_Kind_MINUS]    = 10;
 	BinaryOpPrecedence[Token_Kind_MULTIPLY] = 20;
 	BinaryOpPrecedence[Token_Kind_DIVIDE]   = 20;
+}
+
+Expr *Parse(M_Arena *arena, String stream, String source = "$NULL") {
+	InitParser();
 
 	Parser parser;
-	LexInit(&parser.lexer, input);
+	parser.source = source;
+	parser.arena  = arena;
 
-	parser.arena = M_ArenaAllocate(0);
+	LexInit(&parser.lexer, stream);
 
 	for (uint i = 0; i < PARSER_MAX_LOOKUP; ++i) {
 		_AdvanceToken(&parser);
 	}
 
-	Expr *expr = ParseExpression(&parser);
+	Expr *expr = ParseStatement(&parser);
+	return expr;
+}
 
-	fprintf(stdout, "\n");
+int main(int argc, const char *argv[]) {
+	String input = "4 + 5 * 3 -2 ";
 
-	ExprDump(stdout, expr);
+	M_Arena *arena = M_ArenaAllocate(0);
+	Expr *expr     = Parse(arena, input, "$STDIN");
 
 	return 0;
 }
