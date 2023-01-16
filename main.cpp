@@ -1,31 +1,185 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <assert.h>
-#include <stdlib.h>
+#include "Platform.h"
+#include "Common.h"
+
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
-typedef size_t    umem;
-typedef ptrdiff_t imem;
+enum Token_Kind {
+	Token_Kind_INTEGER,
+	Token_Kind_PLUS,
+	Token_Kind_MINUS,
+	Token_Kind_MULTIPLY,
+	Token_Kind_DIVIDE,
 
-#define static_count(arr) (sizeof(arr)/sizeof((arr)[0]))
-
-struct String {
-	imem     count;
-	uint8_t *data;
-
-	String(): data(0), count(0) {}
-	template <imem N> constexpr String(const char(&a)[N]) : data((uint8_t *)a), count(N - 1) {}
-	String(const uint8_t *_Data, imem _Length): data((uint8_t *)_Data), count(_Length) {}
-	String(const char *_Data, imem _Length): data((uint8_t *)_Data), count(_Length) {}
-	const uint8_t &operator[](const imem index) const { assert(index < count); return data[index]; }
-	uint8_t &operator[](const imem index) { assert(index < count); return data[index]; }
+	Token_Kind_COUNT,
 };
 
-bool is_number(uint8_t ch) {
+static const String TokenKindNames[] = {
+	"Integer", "Plus", "Minus", "Multiply", "Divide"
+};
+
+static_assert(ArrayCount(TokenKindNames) == Token_Kind_COUNT, "");
+
+struct Token_Range {
+	umem from;
+	umem to;
+};
+
+union Token_Value {
+	u8  symbol;
+	u64 integer;
+	r64 floating;
+
+	struct {
+		u8 * data;
+		umem length;
+	} string;
+};
+
+struct Token {
+	Token_Kind  kind;
+	Token_Range range;
+	Token_Value value;
+};
+
+struct Lexer {
+	u8 *   cursor;
+	u8 *   last;
+	u8 *   first;
+	String source;
+};
+
+void LexWhiteSpace(Lexer *l) {
+	u8 *pos = l->cursor;
+	for (; pos < l->last; ++pos) {
+		u8 ch = *pos;
+		if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\v' || ch == '\f') {
+			continue;
+		} else {
+			break;
+		}
+	}
+	l->cursor = pos;
+}
+
+void LexError(Lexer *l, const char *fmt, ...) {
+	Assert(false);
+}
+
+static constexpr u8 CharacterTokenValues[]    = { '+', '-', '*', '/' };
+static constexpr Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
+
+static_assert(ArrayCount(CharacterTokens) == ArrayCount(CharacterTokenValues), "");
+
+bool LexNext(Lexer *l, Token *token) {
+	LexWhiteSpace(l);
+
+	if (l->cursor >= l->last)
+		return false;
+
+	u8 match = *l->cursor;
+
+	for (umem index = 0; index < ArrayCount(CharacterTokenValues); ++index) {
+		if (match == CharacterTokenValues[index]) {
+			token->kind         = CharacterTokens[index];
+			token->range.from   = l->cursor - l->first;
+			token->range.to     = token->range.from + 1;
+			token->value.symbol = match;
+
+			l->cursor += 1;
+			return true;
+		}
+	}
+
+	if (match >= '0' && match <= '9') {
+		u8 * start = l->cursor;
+		u8 * pos   = l->cursor;
+		umem count = 0;
+
+		for (; pos < l->last; ++pos, ++count) {
+			u8 ch = *pos;
+
+			if (ch >= '0' && ch <= '9') {
+				continue;
+			} else {
+				break;
+			}
+		}
+
+		while (count > 1 && *start == '0') {
+			count -= 1;
+			start += 1;
+		}
+
+		if (count > 255) {
+			LexError(l, "bad number");
+			return false;
+		}
+
+		char buff[256];
+		memcpy(buff, start, count);
+		buff[count] = 0;
+
+		char *endptr = nullptr;
+		u64 value    = strtoull(buff, &endptr, 10);
+
+		if (endptr != buff + count || errno == ERANGE) {
+			LexError(l, "bad number");
+			return false;
+		}
+
+		token->kind          = Token_Kind_INTEGER;
+		token->range.from    = l->cursor - l->first;
+		token->range.to      = pos - l->first;
+		token->value.integer = value;
+
+		l->cursor = pos;
+
+		return true;
+	}
+
+	LexError(l, "bad character");
+
+	return false;
+}
+
+void LexDump(FILE *out, const Token &token) {
+	String name = TokenKindNames[token.kind];
+	fprintf(out, "." StrFmt " ", StrArg(name));
+
+	if (token.kind == Token_Kind_INTEGER) {
+		fprintf(out, "(%zu) ", token.value.integer);
+	} else if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS ||
+		token.kind == Token_Kind_MULTIPLY || token.kind == Token_Kind_MULTIPLY) {
+		fprintf(out, "(%c) ", token.value.symbol);
+	}
+}
+
+int main(int argc, const char *argv[]) {
+	String input = " 4 + 5 * 3 -2 ";
+
+	Lexer l;
+	l.cursor = input.data;
+	l.first  = l.cursor;
+	l.last   = l.first + input.count;
+	l.source = "-generated-";
+
+	Token token;
+	while (LexNext(&l, &token)) {
+		LexDump(stdout, token);
+		fprintf(stdout, "\n");
+	}
+
+	return 0;
+}
+
+#if 0
+bool is_number(u8 ch) {
 	return ch >= '0' && ch <= '9';
 }
 
-bool is_whitespace(uint8_t ch) {
+bool is_whitespace(u8 ch) {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
 }
 
@@ -55,7 +209,7 @@ const char *TokenNames[] = {
 	"integer", "plus", "minus", "multiply", "divide"
 };
 
-static_assert(static_count(TokenNames) == TOKEN_COUNT, "");
+static_assert(ArrayCount(TokenNames) == TOKEN_COUNT, "");
 
 struct Token {
 	Token_Kind kind;
@@ -68,13 +222,13 @@ struct Lexer {
 	String input;
 	imem   cursor;
 
-	uint8_t scratch[1024];
+	u8 scratch[1024];
 };
 
-static constexpr uint8_t Operators[] = { '+', '-', '*', '/'};
+static constexpr u8 Operators[] = { '+', '-', '*', '/'};
 static constexpr Token_Kind OperatorTokens[] = { TOKEN_PLUS, TOKEN_MINUS, TOKEN_MULTIPLY, TOKEN_DIVIDE };
 
-static_assert(static_count(OperatorTokens) == static_count(Operators), "");
+static_assert(ArrayCount(OperatorTokens) == ArrayCount(Operators), "");
 
 void skip_whitespace(Lexer *lexer) {
 	for (; lexer->cursor < lexer->input.count; ++lexer->cursor) {
@@ -96,10 +250,10 @@ bool lex(Lexer *lexer) {
 
 	assert(input.count); // todo: error check
 
-	uint8_t ch = input[cursor];
+	u8 ch = input[cursor];
 
-	for (umem index = 0; index < static_count(Operators); ++index) {
-		uint8_t match = Operators[index];
+	for (umem index = 0; index < ArrayCount(Operators); ++index) {
+		u8 match = Operators[index];
 		if (match == ch) {
 			token->kind = OperatorTokens[index];
 			token->source = String(input.data + cursor, 1);
@@ -148,7 +302,7 @@ struct Code_Node_Binary_Operator : Code_Node {
 	Code_Node *left;
 	Code_Node *right;
 
-	uint8_t    symbol;
+	u8    symbol;
 
 	Code_Node_Binary_Operator(): Code_Node(CODE_BINARY_OPERATOR), left(nullptr), right(nullptr) {}
 };
@@ -255,3 +409,4 @@ int main(int argc, const char *argv[]) {
 
 	return 0;
 }
+#endif
