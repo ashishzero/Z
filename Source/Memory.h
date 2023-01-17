@@ -1,5 +1,5 @@
 #pragma once
-#include "Common.h"
+#include "Platform.h"
 
 enum M_Flags {
 	M_CLEAR_MEMORY = 0x1,

@@ -15,15 +15,4 @@
 		</Expand>
 	</Type>
 
-	<Type Name="Span&lt;*&gt;">
-		<DisplayString>{{ count={count} }}</DisplayString>
-		<Expand>
-			<Item Name="[count]" ExcludeView="simple">count</Item>
-			<ArrayItems>
-				<Size>count</Size>
-				<ValuePointer>data</ValuePointer>
-			</ArrayItems>
-		</Expand>
-	</Type>
-
 </AutoVisualizer>

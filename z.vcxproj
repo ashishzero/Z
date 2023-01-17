@@ -139,15 +139,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Lexer.c" />
-    <ClCompile Include="Main.c" />
-    <ClCompile Include="Memory.c" />
+    <ClCompile Include="Source\Lexer.c" />
+    <ClCompile Include="Source\Main.c" />
+    <ClCompile Include="Source\Memory.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Common.h" />
-    <ClInclude Include="Lexer.h" />
-    <ClInclude Include="Memory.h" />
-    <ClInclude Include="Platform.h" />
+    <ClInclude Include="Source\Lexer.h" />
+    <ClInclude Include="Source\Memory.h" />
+    <ClInclude Include="Source\Platform.h" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="NatvisFile.natvis" />

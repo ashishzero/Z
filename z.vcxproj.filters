@@ -15,27 +15,24 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Lexer.c">
+    <ClCompile Include="Source\Lexer.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Main.c">
+    <ClCompile Include="Source\Main.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Memory.c">
+    <ClCompile Include="Source\Memory.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Platform.h">
+    <ClInclude Include="Source\Platform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Common.h">
+    <ClInclude Include="Source\Lexer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Lexer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Memory.h">
+    <ClInclude Include="Source\Memory.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

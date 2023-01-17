@@ -1,5 +1,4 @@
 #include "Platform.h"
-#include "Common.h"
 #include "Lexer.h"
 #include "Memory.h"
 
@@ -133,7 +132,7 @@ void Log(Parser *parser, umem pos_0, umem pos_1, FILE *out, Log_Kind kind, const
 		}
 	}
 
-	static const char *LogKindNames[] = { "info", "warning","error", "error" };
+	static const char *LogKindNames[] = { "info", "warning", "error", "error" };
 
 	fprintf(out, StrFmt "(%zu,%zu): %s: ", StrArg(parser->source), r, c, LogKindNames[kind]);
 	vfprintf(out, fmt, args);
