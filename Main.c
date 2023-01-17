@@ -8,7 +8,7 @@
 #define PARSER_MAX_LOOKUP 4
 
 #ifdef BUILD_DEBUG
-#define PARSER_DUMP_TOKENS
+//#define PARSER_DUMP_TOKENS
 #define PARSER_DUMP_EXPR
 #endif
 
@@ -25,9 +25,34 @@ static const char *ExprKindNames[] = {
 };
 static_assert(ArrayCount(ExprKindNames) == Expr_Kind_COUNT, "");
 
+typedef enum Expr_Type_Id {
+	Expr_Type_Id_INTEGER,
+
+	Expr_Type_Id_COUNT
+} Expr_Type_Id;
+
 typedef struct Expr_Type {
-	int placeholder;
+	Expr_Type_Id id;
+	u32          runtime_size;
 } Expr_Type;
+
+enum Expr_Type_Integer_Flags {
+	EXPR_TYPE_INTEGER_IS_SIGNED = 0x1
+};
+
+typedef struct Expr_Type_Integer {
+	Expr_Type base;
+	u32       flags;
+} Expr_Type_Integer;
+
+static Expr_Type_Integer ExprBuiltinUnsigned8  = { { Expr_Type_Id_INTEGER, 1 }, 0 };
+static Expr_Type_Integer ExprBuiltinUnsigned16 = { { Expr_Type_Id_INTEGER, 2 }, 0 };
+static Expr_Type_Integer ExprBuiltinUnsigned32 = { { Expr_Type_Id_INTEGER, 4 }, 0 };
+static Expr_Type_Integer ExprBuiltinUnsigned64 = { { Expr_Type_Id_INTEGER, 8 }, 0 };
+static Expr_Type_Integer ExprBuiltinSigned8    = { { Expr_Type_Id_INTEGER, 1 }, EXPR_TYPE_INTEGER_IS_SIGNED };
+static Expr_Type_Integer ExprBuiltinSigned16   = { { Expr_Type_Id_INTEGER, 2 }, EXPR_TYPE_INTEGER_IS_SIGNED };
+static Expr_Type_Integer ExprBuiltinSigned32   = { { Expr_Type_Id_INTEGER, 4 }, EXPR_TYPE_INTEGER_IS_SIGNED };
+static Expr_Type_Integer ExprBuiltinSigned64   = { { Expr_Type_Id_INTEGER, 8 }, EXPR_TYPE_INTEGER_IS_SIGNED };
 
 typedef struct Expr {
 	Expr_Kind   kind;
@@ -154,7 +179,7 @@ Token PeekToken(Parser *parser, uint index) {
 	return parser->lookup[index];
 }
 
-void _AdvanceToken(Parser *parser) {
+void AdvanceTokenHelper(Parser *parser) {
 	for (uint i = 0; i < PARSER_MAX_LOOKUP - 1; ++i) {
 		parser->lookup[i] = parser->lookup[i + 1];
 	}
@@ -171,7 +196,7 @@ void AdvanceToken(Parser *parser) {
 	LexDump(stdout, &parser->lookup[0]);
 #endif
 
-	_AdvanceToken(parser);
+	AdvanceTokenHelper(parser);
 }
 
 Token NextToken(Parser *parser) {
@@ -188,6 +213,7 @@ Expr *ParseTerm(Parser *parser) {
 	if (token.kind == Token_Kind_INTEGER) {
 		Expr_Literal *expr = AllocateExpr(parser, Literal, token.range);
 		expr->value        = token.value;
+		expr->base.type    = &ExprBuiltinUnsigned64.base;
 		return &expr->base;
 	}
 
@@ -249,6 +275,18 @@ Expr *ParseExpression(Parser *parser, int prev_prec) {
 	return expr;
 }
 
+void ExprTypeDump(FILE *out, Expr_Type *root) {
+	if (!root) return;
+
+	switch (root->id) {
+	case Expr_Type_Id_INTEGER:
+	{
+		Expr_Type_Integer *type = (Expr_Type_Integer *)root;
+		fprintf(out, "%c%d", (type->flags & EXPR_TYPE_INTEGER_IS_SIGNED) ? 's' : 'u', type->base.runtime_size << 3);
+	} break;
+	}
+}
+
 void ExprDump(FILE *out, Expr *root, uint indent) {
 	for (uint i = 0; i < indent; ++i)
 		fprintf(out, "    ");
@@ -260,14 +298,16 @@ void ExprDump(FILE *out, Expr *root, uint indent) {
 	case Expr_Kind_Literal:
 	{
 		Expr_Literal *expr = (Expr_Literal *)root;
-		fprintf(out, "(%zu)", expr->value.integer);
+		fprintf(out, "(%zu) ", expr->value.integer);
+		ExprTypeDump(out, root->type);
 		fprintf(out, "\n");
 	} break;
 
 	case Expr_Kind_Unary_Operator:
 	{
 		Expr_Unary_Operator *expr = (Expr_Unary_Operator *)root;
-		fprintf(out, "(%c)", (char)expr->symbol);
+		fprintf(out, "(%c) ", (char)expr->symbol);
+		ExprTypeDump(out, root->type);
 		fprintf(out, "\n");
 		ExprDump(out, expr->child, indent + 1);
 	} break;
@@ -275,7 +315,8 @@ void ExprDump(FILE *out, Expr *root, uint indent) {
 	case Expr_Kind_Binary_Operator:
 	{
 		Expr_Binary_Operator *expr = (Expr_Binary_Operator *)root;
-		fprintf(out, "(%c)", (char)expr->symbol);
+		fprintf(out, "(%c) ", (char)expr->symbol);
+		ExprTypeDump(out, root->type);
 		fprintf(out, "\n");
 		ExprDump(out, expr->left, indent + 1);
 		ExprDump(out, expr->right, indent + 1);
@@ -316,7 +357,7 @@ Expr *Parse(M_Arena *arena, String stream, String source) {
 	LexInit(&parser.lexer, stream);
 
 	for (uint i = 0; i < PARSER_MAX_LOOKUP; ++i) {
-		_AdvanceToken(&parser);
+		AdvanceTokenHelper(&parser);
 	}
 
 	Expr *expr = ParseStatement(&parser);
