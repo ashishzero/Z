@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-static const String TokenKindNames[] = {
+static const char *TokenKindNames[] = {
 	"Integer", "Plus", "Minus", "Multiply", "Divide"
 };
 
@@ -39,14 +39,14 @@ static void LexError(Lexer *l, Token *token, u8 *pos, const char *fmt, ...) {
 }
 
 void LexInit(Lexer *l, String input) {
-	l->first    = input.begin();
-	l->last     = input.end();
+	l->first    = input.data;
+	l->last     = input.data + input.count;
 	l->cursor   = l->first;
 	l->error[0] = 0;
 }
 
-static constexpr u8 CharacterTokenValues[]    = { '+', '-', '*', '/' };
-static constexpr Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
+static const u8 CharacterTokenValues[]    = { '+', '-', '*', '/' };
+static const Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
 
 static_assert(ArrayCount(CharacterTokens) == ArrayCount(CharacterTokenValues), "");
 
@@ -149,14 +149,14 @@ bool LexNext(Lexer *l, Token *token) {
 	return false;
 }
 
-void LexDump(FILE *out, const Token &token) {
-	String name = TokenKindNames[token.kind];
-	fprintf(out, "." StrFmt " ", StrArg(name));
+void LexDump(FILE *out, const Token *token) {
+	const char *name = TokenKindNames[token->kind];
+	fprintf(out, ".%s", name);
 
-	if (token.kind == Token_Kind_INTEGER) {
-		fprintf(out, "(%zu) ", token.value.integer);
-	} else if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS ||
-		token.kind == Token_Kind_MULTIPLY || token.kind == Token_Kind_MULTIPLY) {
-		fprintf(out, "(%c) ", (char)token.value.symbol);
+	if (token->kind == Token_Kind_INTEGER) {
+		fprintf(out, "(%zu) ", token->value.integer);
+	} else if (token->kind == Token_Kind_PLUS || token->kind == Token_Kind_MINUS ||
+		token->kind == Token_Kind_MULTIPLY || token->kind == Token_Kind_MULTIPLY) {
+		fprintf(out, "(%c) ", (char)token->value.symbol);
 	}
 }

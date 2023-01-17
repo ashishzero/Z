@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-enum Token_Kind {
+typedef enum Token_Kind {
 	Token_Kind_INTEGER,
 	Token_Kind_PLUS,
 	Token_Kind_MINUS,
@@ -11,37 +11,33 @@ enum Token_Kind {
 	Token_Kind_DIVIDE,
 
 	Token_Kind_END,
-};
+} Token_Kind;
 
-struct Token_Range {
+typedef struct Token_Range {
 	umem from;
 	umem to;
-};
+} Token_Range;
 
-union Token_Value {
-	u32 symbol;
-	u64 integer;
-	r64 floating;
+typedef union Token_Value {
+	u32    symbol;
+	u64    integer;
+	r64    floating;
+	String string;
+} Token_Value;
 
-	struct {
-		u8 * data;
-		umem length;
-	} string;
-};
-
-struct Token {
+typedef struct Token {
 	Token_Kind  kind;
 	Token_Range range;
 	Token_Value value;
-};
+} Token;
 
-struct Lexer {
+typedef struct Lexer {
 	u8 *   cursor;
 	u8 *   last;
 	u8 *   first;
 	char   error[1024];
-};
+} Lexer;
 
 void LexInit(Lexer *l, String input);
 bool LexNext(Lexer *l, Token *token);
-void LexDump(FILE *out, const Token &token);
+void LexDump(FILE *out, const Token *token);

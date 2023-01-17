@@ -3,6 +3,9 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
+#include <inttypes.h>
+#include <float.h>
 
 #if defined(__clang__) || defined(__ibmxl__)
 #define COMPILER_CLANG 1
@@ -156,16 +159,16 @@
 #endif
 
 #ifdef __GNUC__
-[[noreturn]] inproc __attribute__((always_inline)) void Unreachable() { DebugTriggerbreakpoint(); __builtin_unreachable(); }
+_Noreturn inproc __attribute__((always_inline)) void Unreachable() { DebugTriggerbreakpoint(); __builtin_unreachable(); }
 #elif defined(_MSC_VER)
-[[noreturn]] __forceinline void Unreachable() { DebugTriggerbreakpoint(); __assume(false); }
+_Noreturn __forceinline void Unreachable() { DebugTriggerbreakpoint(); __assume(false); }
 #else // ???
 inproc void Unreachable() { TriggerBreakpoint(); }
 #endif
 
 #define NoDefaultCase() default: Unreachable(); break
 
-[[noreturn]] inproc void Unimplemented() { TriggerBreakpoint(); Unreachable(); }
+_Noreturn inproc void Unimplemented() { TriggerBreakpoint(); Unreachable(); }
 
 //
 //
@@ -187,32 +190,21 @@ typedef double    r64;
 typedef size_t    umem;
 typedef ptrdiff_t imem;
 
+#define nullptr ((void *)0)
+
 #define ArrayCount(a) (sizeof(a) / sizeof((a)[0]))
 
-template <typename T> constexpr T Min(T a, T b) { return a < b ? a : b; }
-template <typename T> constexpr T Max(T a, T b) { return a > b ? a : b; }
-template <typename T> constexpr T Clamp(T a, T b, T v) { return Min(b, Max(a, v)); }
-template <typename T> constexpr bool IsInRange(T a, T b, T v) { return v >= a && v <= b; }
-template <typename T> void Swap(T *a, T *b) { T t = *b; *b = *a; *a = t; }
-constexpr int IPower(int v, int p) { int r = v; for (int i = 1; i < p; ++i) r *= v; return r; }
+#define Min(a, b)          (((a) < (b))?(a):(b))
+#define Max(a, b)          (((a) > (b))?(a):(b))
+#define Clamp(a, b, v)     Min(b, Max(a, v))
+#define IsInRange(a, b, v) ((v) >= (a) && (v) <= (b))
 
-#define SetFlag(expr, flag) ((expr) |= (flag))
-#define ClearFlag(expr, flag) ((expr) &= ~(flag))
+#define SetFlag(expr, flag)    ((expr) |= (flag))
+#define ClearFlag(expr, flag)  ((expr) &= ~(flag))
 #define ToggleFlag(expr, flag) ((expr) ^= (flag))
-#define IsPower2(value) (((value) != 0) && ((value) & ((value)-1)) == 0)
-#define AlignPower2Up(x, p) (((x) + (p)-1) & ~((p)-1))
-#define AlignPower2Down(x, p) ((x) & ~((p)-1))
-
-template <typename T> constexpr static T NextPowerOf2(T n) {
-	if (IsPower2(n))
-		return n;
-	T count = 0;
-	while (n != 0) {
-		n >>= 1;
-		count += 1;
-	}
-	return (T)1 << (T)count;
-}
+#define IsPower2(value)        (((value) != 0) && ((value) & ((value)-1)) == 0)
+#define AlignPower2Up(x, p)    (((x) + (p)-1) & ~((p)-1))
+#define AlignPower2Down(x, p)  ((x) & ~((p)-1))
 
 #define ByteSwap16(a) ((((a)&0x00FF) << 8) | (((a)&0xFF00) >> 8))
 #define ByteSwap32(a) ((((a)&0x000000FF) << 24) | (((a)&0x0000FF00) << 8) | (((a)&0x00FF0000) >> 8) | (((a)&0xFF000000) >> 24))

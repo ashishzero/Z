@@ -2,7 +2,11 @@
 
 #include <string.h>
 
-static M_Arena EmptyArena = { 0,0,0, (M_Arena *)&EmptyArena};
+#ifndef M_ARENA_COMMIT_SIZE
+static const umem M_ARENA_COMMIT_SIZE = KiloBytes(64);
+#endif
+
+static M_Arena EmptyArena = { 0,0,0, nullptr };
 
 u8 *M_AlignPointer(u8 *location, umem alignment) {
 	return (u8 *)((umem)(location + (alignment - 1)) & ~(alignment - 1));
@@ -107,9 +111,9 @@ void *M_PushSizeAligned(M_Arena *arena, umem size, u32 alignment, u32 flags) {
 	return nullptr;
 }
 
-M_Temporary M_BeginTemporaryMemory(M_Arena *arena) {
-	M_Temporary mem;
-	mem.arena = arena;
+M_Temp M_BeginTemporaryMemory(M_Arena *arena) {
+	M_Temp mem;
+	mem.arena    = arena;
 	mem.position = arena->position;
 	return mem;
 }
@@ -120,11 +124,11 @@ void M_PopSize(M_Arena *arena, umem size) {
 	M_EnsurePosition(arena, pos);
 }
 
-void M_EndTemporaryMemory(M_Temporary *temp) {
+void M_EndTemporaryMemory(M_Temp *temp) {
 	temp->arena->position = temp->position;
 }
 
-void M_FreeTemporaryMemory(M_Temporary *temp) {
+void M_FreeTemporaryMemory(M_Temp *temp) {
 	M_EnsurePosition(temp->arena, temp->position);
 	M_PackToPosition(temp->arena, temp->position);
 }

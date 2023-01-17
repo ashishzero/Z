@@ -5,60 +5,60 @@
 
 #include <stdlib.h>
 
-constexpr int PARSER_DUMP_TOKEN = 0x1;
-constexpr int PARSER_DUMP_EXPR  = 0x2;
+#define PARSER_MAX_LOOKUP 4
 
 #ifdef BUILD_DEBUG
-static constexpr u32 ParserDumpFlags = 0xff;
-#else
-static constexpr u32 ParserDumpFlags = 0;
+#define PARSER_DUMP_TOKENS
+#define PARSER_DUMP_EXPR
 #endif
 
-enum Expr_Kind {
+typedef enum Expr_Kind {
 	Expr_Kind_Literal,
 	Expr_Kind_Unary_Operator,
 	Expr_Kind_Binary_Operator,
 
 	Expr_Kind_COUNT
-};
+} Expr_Kind;
 
-static const String ExprKindNames[] = {
+static const char *ExprKindNames[] = {
 	"Literal", "Unary Operator", "Binary Operator"
 };
 static_assert(ArrayCount(ExprKindNames) == Expr_Kind_COUNT, "");
 
-struct Expr_Type {
-};
+typedef struct Expr_Type {
+	int placeholder;
+} Expr_Type;
 
-struct Expr {
+typedef struct Expr {
 	Expr_Kind   kind;
 	Expr_Type * type;
 	Token_Range range;
-};
+} Expr;
 
-struct Expr_Literal : Expr {
+typedef struct Expr_Literal {
+	Expr        base;
 	Token_Value value;
-};
+} Expr_Literal;
 
-struct Expr_Unary_Operator : Expr {
+typedef struct Expr_Unary_Operator {
+	Expr  base;
 	Expr *child;
 	u32   symbol;
-};
+} Expr_Unary_Operator;
 
-struct Expr_Binary_Operator : Expr {
+typedef struct Expr_Binary_Operator {
+	Expr  base;
 	Expr *left;
 	Expr *right;
 	u32   symbol;
-};
+} Expr_Binary_Operator;
 
-static constexpr uint PARSER_MAX_LOOKUP = 4;
-
-struct Parser {
+typedef struct Parser {
 	Lexer    lexer;
 	Token    lookup[PARSER_MAX_LOOKUP];
 	M_Arena *arena;
 	String   source;
-};
+} Parser;
 
 void *OutOfMemory() {
 	TriggerBreakpoint();
@@ -67,12 +67,12 @@ void *OutOfMemory() {
 }
 
 void *Allocate(Parser *parser, umem size, u32 alignment) {
-	constexpr umem PARSER_ARENA_SIZE = MegaBytes(16);
+	const umem PARSER_ARENA_SIZE = MegaBytes(16);
 
 	void *ptr = M_PushSizeAligned(parser->arena, size, alignment, M_CLEAR_MEMORY);
 	if (ptr) return ptr;
 
-	M_Arena *arena = M_ArenaAllocate(PARSER_ARENA_SIZE);
+	M_Arena *arena = M_ArenaAllocate(PARSER_ARENA_SIZE, 0);
 	arena->next    = parser->arena;
 	parser->arena  = arena;
 
@@ -88,12 +88,12 @@ Expr *ExprInit(Expr *expr, Expr_Kind kind, Token_Range range) {
 	return expr;
 }
 
-enum Log_Kind {
+typedef enum Log_Kind {
 	Log_Kind_INFO,
 	Log_Kind_WARNING,
 	Log_Kind_ERROR,
 	Log_Kind_FATAL
-};
+} Log_Kind;
 
 void Log(Parser *parser, umem pos_0, umem pos_1, FILE *out, Log_Kind kind, const char *fmt, va_list args) {
 	umem r = 1, c = 0;
@@ -119,65 +119,37 @@ void Log(Parser *parser, umem pos_0, umem pos_1, FILE *out, Log_Kind kind, const
 	}
 }
 
-void Info(Parser *parser, Token *token, const char *fmt, ...) {
+void Info(Parser *parser, Token_Range range, const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	Log(parser, token->range.from, token->range.to, stdout, Log_Kind_INFO, fmt, args);
+	Log(parser, range.from, range.to, stdout, Log_Kind_INFO, fmt, args);
 	va_end(args);
 }
 
-void Info(Parser *parser, Expr *expr, const char *fmt, ...) {
+void Warning(Parser *parser, Token_Range range, const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	Log(parser, expr->range.from, expr->range.to, stdout, Log_Kind_INFO, fmt, args);
+	Log(parser, range.from, range.to, stderr, Log_Kind_WARNING, fmt, args);
 	va_end(args);
 }
 
-void Warning(Parser *parser, Token *token, const char *fmt, ...) {
+void Error(Parser *parser, Token_Range range, const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_WARNING, fmt, args);
+	Log(parser, range.from, range.to, stderr, Log_Kind_ERROR, fmt, args);
 	va_end(args);
 }
 
-void Warning(Parser *parser, Expr *expr, const char *fmt, ...) {
+void Fatal(Parser *parser, Token_Range range, const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_WARNING, fmt, args);
+	Log(parser, range.from, range.to, stderr, Log_Kind_FATAL, fmt, args);
 	va_end(args);
 }
 
-void Error(Parser *parser, Token *token, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_ERROR, fmt, args);
-	va_end(args);
-}
+#define AllocateExpr(parser, type, range) (Expr_##type *)ExprInit((Expr *)Allocate(parser, sizeof(Expr_##type), _Alignof(Expr_##type)), Expr_Kind_##type, range)
 
-void Error(Parser *parser, Expr *expr, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_ERROR, fmt, args);
-	va_end(args);
-}
-
-void Fatal(Parser *parser, Token *token, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	Log(parser, token->range.from, token->range.to, stderr, Log_Kind_FATAL, fmt, args);
-	va_end(args);
-}
-
-void Fatal(Parser *parser, Expr *expr, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	Log(parser, expr->range.from, expr->range.to, stderr, Log_Kind_FATAL, fmt, args);
-	va_end(args);
-}
-
-#define AllocateExpr(parser, type, range) (Expr_##type *)ExprInit((Expr *)Allocate(parser, sizeof(Expr_##type), alignof(Expr_##type)), Expr_Kind_##type, range)
-
-Token PeekToken(Parser *parser, uint index = 0) {
+Token PeekToken(Parser *parser, uint index) {
 	Assert(index <= PARSER_MAX_LOOKUP);
 	return parser->lookup[index];
 }
@@ -189,15 +161,16 @@ void _AdvanceToken(Parser *parser) {
 
 	Token *token = &parser->lookup[PARSER_MAX_LOOKUP - 1];
 	if (!LexNext(&parser->lexer, token)) {
-		Fatal(parser, token, parser->lexer.error);
+		Fatal(parser, token->range, parser->lexer.error);
 	}
 }
 
 void AdvanceToken(Parser *parser) {
-	if constexpr (ParserDumpFlags & PARSER_DUMP_TOKEN) {
-		fprintf(stdout, "T");
-		LexDump(stdout, parser->lookup[0]);
-	}
+#ifdef PARSER_DUMP_TOKENS
+	fprintf(stdout, "T");
+	LexDump(stdout, &parser->lookup[0]);
+#endif
+
 	_AdvanceToken(parser);
 }
 
@@ -211,50 +184,50 @@ Expr *ParseTerm(Parser *parser) {
 	Token token = NextToken(parser);
 
 	if (token.kind == Token_Kind_INTEGER) {
-		auto expr   = AllocateExpr(parser, Literal, token.range);
-		expr->value = token.value;
-		return expr;
+		Expr_Literal *expr = AllocateExpr(parser, Literal, token.range);
+		expr->value        = token.value;
+		return &expr->base;
 	}
 
 	if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS) {
-		auto expr    = AllocateExpr(parser, Unary_Operator, token.range);
-		expr->child  = ParseTerm(parser);
-		expr->type   = expr->child->type;
-		expr->symbol = token.value.symbol;
-		return expr;
+		Expr_Unary_Operator *expr = AllocateExpr(parser, Unary_Operator, token.range);
+		expr->child               = ParseTerm(parser);
+		expr->symbol              = token.value.symbol;
+		return &expr->base;
 	}
 
-	Fatal(parser, &token, "expected expression");
+	Fatal(parser, token.range, "expected expression");
 
 	return nullptr;
 }
 
-static constexpr Token_Kind BinaryOpTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
+static const Token_Kind BinaryOpTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
 
 static int BinaryOpPrecedence[Token_Kind_END];
 
-Expr *ParseExpression(Parser *parser, int prev_prec = -1) {
+Expr *ParseExpression(Parser *parser, int prev_prec) {
 	Expr *expr   = ParseTerm(parser);
 
-	for (Token token = PeekToken(parser); 
+	for (Token token = PeekToken(parser, 0); 
 		token.kind != Token_Kind_END;
-		token = PeekToken(parser)) {
+		token = PeekToken(parser, 0)) {
 
 		int prec = BinaryOpPrecedence[token.kind];
 
 		if (prec <= prev_prec)
 			break;
 
-		for (Token_Kind match : BinaryOpTokens) {
+		for (int index = 0; index < ArrayCount(BinaryOpTokens); ++index) {
+			Token_Kind match = BinaryOpTokens[index];
 			if (match == token.kind) {
 				AdvanceToken(parser);
 
-				auto op    = AllocateExpr(parser, Binary_Operator, token.range);
-				op->left   = expr;
-				op->right  = ParseExpression(parser, prec);
-				op->symbol = token.value.symbol;
+				Expr_Binary_Operator *op = AllocateExpr(parser, Binary_Operator, token.range);
+				op->left                 = expr;
+				op->right                = ParseExpression(parser, prec);
+				op->symbol               = token.value.symbol;
 
-				expr = op;
+				expr = &op->base;
 				break;
 			}
 		}
@@ -263,24 +236,24 @@ Expr *ParseExpression(Parser *parser, int prev_prec = -1) {
 	return expr;
 }
 
-void ExprDump(FILE *out, Expr *root, uint indent = 0) {
+void ExprDump(FILE *out, Expr *root, uint indent) {
 	for (uint i = 0; i < indent; ++i)
 		fprintf(out, "    ");
 
-	const String name = ExprKindNames[root->kind];
-	fprintf(out, "." StrFmt " ", StrArg(name));
+	const char *name = ExprKindNames[root->kind];
+	fprintf(out, ".%s", name);
 
 	switch (root->kind) {
 	case Expr_Kind_Literal:
 	{
-		auto expr = (Expr_Literal *)root;
+		Expr_Literal *expr = (Expr_Literal *)root;
 		fprintf(out, "(%zu)", expr->value.integer);
 		fprintf(out, "\n");
 	} break;
 
 	case Expr_Kind_Unary_Operator:
 	{
-		auto expr = (Expr_Unary_Operator *)root;
+		Expr_Unary_Operator *expr = (Expr_Unary_Operator *)root;
 		fprintf(out, "(%c)", (char)expr->symbol);
 		fprintf(out, "\n");
 		ExprDump(out, expr->child, indent + 1);
@@ -288,7 +261,7 @@ void ExprDump(FILE *out, Expr *root, uint indent = 0) {
 
 	case Expr_Kind_Binary_Operator:
 	{
-		auto expr = (Expr_Binary_Operator *)root;
+		Expr_Binary_Operator *expr = (Expr_Binary_Operator *)root;
 		fprintf(out, "(%c)", (char)expr->symbol);
 		fprintf(out, "\n");
 		ExprDump(out, expr->left, indent + 1);
@@ -298,12 +271,12 @@ void ExprDump(FILE *out, Expr *root, uint indent = 0) {
 }
 
 Expr *ParseStatement(Parser *parser) {
-	Expr *expr = ParseExpression(parser);
+	Expr *expr = ParseExpression(parser, -1);
 
-	if constexpr (ParserDumpFlags & PARSER_DUMP_EXPR) {
-		fprintf(stdout, "\n");
-		ExprDump(stdout, expr);
-	}
+#ifdef PARSER_DUMP_EXPR
+	fprintf(stdout, "\n");
+	ExprDump(stdout, expr, 0);
+#endif
 
 	return expr;
 }
@@ -320,7 +293,7 @@ void InitParser() {
 	BinaryOpPrecedence[Token_Kind_DIVIDE]   = 20;
 }
 
-Expr *Parse(M_Arena *arena, String stream, String source = "$NULL") {
+Expr *Parse(M_Arena *arena, String stream, String source) {
 	InitParser();
 
 	Parser parser;
@@ -338,10 +311,10 @@ Expr *Parse(M_Arena *arena, String stream, String source = "$NULL") {
 }
 
 int main(int argc, const char *argv[]) {
-	String input = "4 + 5 * 3 -2 ";
+	String input   = Str("4 + 5 * 3 - 2");
 
-	M_Arena *arena = M_ArenaAllocate(0);
-	Expr *expr     = Parse(arena, input, "$STDIN");
+	M_Arena *arena = M_ArenaAllocate(0, 0);
+	Expr *expr     = Parse(arena, input, Str("$STDIN"));
 
 	return 0;
 }
