@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 static const char *TokenKindNames[] = {
-	"Integer", "Plus", "Minus", "Multiply", "Divide"
+	"Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose"
 };
 
 static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
@@ -45,8 +45,9 @@ void LexInit(Lexer *l, String input) {
 	l->error[0] = 0;
 }
 
-static const u8 CharacterTokenValues[]    = { '+', '-', '*', '/' };
-static const Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
+static const u8 CharacterTokenValues[]    = { '+', '-', '*', '/', '(', ')' };
+static const Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE,
+												Token_Kind_BRACKET_OPEN, Token_Kind_BRACKET_CLOSE };
 
 static_assert(ArrayCount(CharacterTokens) == ArrayCount(CharacterTokenValues), "");
 

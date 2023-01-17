@@ -180,6 +180,8 @@ Token NextToken(Parser *parser) {
 	return result;
 }
 
+Expr *ParseExpression(Parser *parser, int prev_prec);
+
 Expr *ParseTerm(Parser *parser) {
 	Token token = NextToken(parser);
 
@@ -196,7 +198,18 @@ Expr *ParseTerm(Parser *parser) {
 		return &expr->base;
 	}
 
-	Fatal(parser, token.range, "expected expression");
+	if (token.kind == Token_Kind_BRACKET_OPEN) {
+		Expr *expr = ParseExpression(parser, 0);
+
+		token = NextToken(parser);
+		if (token.kind != Token_Kind_BRACKET_CLOSE) {
+			Fatal(parser, token.range, "expected \")\"");
+		}
+
+		return expr;
+	}
+
+	Fatal(parser, token.range, "invalid expression");
 
 	return nullptr;
 }
@@ -271,7 +284,7 @@ void ExprDump(FILE *out, Expr *root, uint indent) {
 }
 
 Expr *ParseStatement(Parser *parser) {
-	Expr *expr = ParseExpression(parser, -1);
+	Expr *expr = ParseExpression(parser, 0);
 
 #ifdef PARSER_DUMP_EXPR
 	fprintf(stdout, "\n");
@@ -311,7 +324,7 @@ Expr *Parse(M_Arena *arena, String stream, String source) {
 }
 
 int main(int argc, const char *argv[]) {
-	String input   = Str("4 + 5 * 3 - 2");
+	String input   = Str("-4 + 5 * (3 - 2)");
 
 	M_Arena *arena = M_ArenaAllocate(0, 0);
 	Expr *expr     = Parse(arena, input, Str("$STDIN"));
