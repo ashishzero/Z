@@ -1,5 +1,6 @@
 #pragma once
 #include "Platform.h"
+#include "Pool.h"
 
 #include <stdio.h>
 
@@ -34,12 +35,13 @@ typedef struct Token {
 } Token;
 
 typedef struct Lexer {
-	u8 *   cursor;
-	u8 *   last;
-	u8 *   first;
-	char   error[1024];
+	u8 *    cursor;
+	u8 *    last;
+	u8 *    first;
+	M_Pool *pool;
+	char    error[1024];
 } Lexer;
 
-void LexInit(Lexer *l, String input);
+void LexInit(Lexer *l, String input, M_Pool *pool);
 bool LexNext(Lexer *l, Token *token);
 void LexDump(FILE *out, const Token *token);

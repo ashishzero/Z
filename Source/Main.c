@@ -78,10 +78,10 @@ typedef struct Expr_Binary_Operator {
 } Expr_Binary_Operator;
 
 typedef struct Parser {
-	Lexer        lexer;
-	Token        lookup[PARSER_MAX_LOOKUP];
+	Lexer  lexer;
+	Token  lookup[PARSER_MAX_LOOKUP];
 	M_Pool pool;
-	String       source;
+	String source;
 } Parser;
 
 Expr *ExprAllocate(Parser *parser, umem size, Expr_Kind kind, Token_Range range) {
@@ -335,7 +335,7 @@ Expr *Parse(String stream, String source) {
 	parser.source = source;
 
 	M_PoolInit(&parser.pool, MegaBytes(16));
-	LexInit(&parser.lexer, stream);
+	LexInit(&parser.lexer, stream, &parser.pool);
 
 	for (uint i = 0; i < PARSER_MAX_LOOKUP; ++i) {
 		AdvanceTokenHelper(&parser);

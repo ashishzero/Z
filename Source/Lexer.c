@@ -38,10 +38,11 @@ static void LexError(Lexer *l, Token *token, u8 *pos, const char *fmt, ...) {
 	LexToken(l, token, Token_Kind_END, pos);
 }
 
-void LexInit(Lexer *l, String input) {
+void LexInit(Lexer *l, String input, M_Pool *pool) {
 	l->first    = input.data;
 	l->last     = input.data + input.count;
 	l->cursor   = l->first;
+	l->pool     = pool;
 	l->error[0] = 0;
 }
 
