@@ -139,12 +139,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Parser.c" />
     <ClCompile Include="Source\Pool.c" />
     <ClCompile Include="Source\Lexer.c" />
     <ClCompile Include="Source\Main.c" />
     <ClCompile Include="Source\Memory.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Parser.h" />
     <ClInclude Include="Source\Pool.h" />
     <ClInclude Include="Source\Lexer.h" />
     <ClInclude Include="Source\Memory.h" />
