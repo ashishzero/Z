@@ -24,6 +24,9 @@
     <ClCompile Include="Source\Memory.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Pool.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Platform.h">
@@ -33,6 +36,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Source\Memory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Pool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,6 +1,6 @@
 #include "Platform.h"
 #include "Lexer.h"
-#include "Memory.h"
+#include "Pool.h"
 
 #include <stdlib.h>
 
@@ -78,37 +78,19 @@ typedef struct Expr_Binary_Operator {
 } Expr_Binary_Operator;
 
 typedef struct Parser {
-	Lexer    lexer;
-	Token    lookup[PARSER_MAX_LOOKUP];
-	M_Arena *arena;
-	String   source;
+	Lexer        lexer;
+	Token        lookup[PARSER_MAX_LOOKUP];
+	M_Pool pool;
+	String       source;
 } Parser;
 
-void *OutOfMemory() {
-	TriggerBreakpoint();
-	exit(1);
-	return nullptr;
-}
+Expr *ExprAllocate(Parser *parser, umem size, Expr_Kind kind, Token_Range range) {
+	const u32 alignment = _Alignof(Expr);
 
-void *Allocate(Parser *parser, umem size, u32 alignment) {
-	const umem PARSER_ARENA_SIZE = MegaBytes(16);
-
-	void *ptr = M_PushSizeAligned(parser->arena, size, alignment, M_CLEAR_MEMORY);
-	if (ptr) return ptr;
-
-	M_Arena *arena = M_ArenaAllocate(PARSER_ARENA_SIZE, 0);
-	arena->next    = parser->arena;
-	parser->arena  = arena;
-
-	ptr = M_PushSizeAligned(parser->arena, size, alignment, M_CLEAR_MEMORY);
-	if (ptr) return ptr;
-
-	return OutOfMemory();
-}
-
-Expr *ExprInit(Expr *expr, Expr_Kind kind, Token_Range range) {
+	Expr *expr  = M_PoolPush(&parser->pool, size, alignment, M_CLEAR_MEMORY);
 	expr->kind  = kind;
 	expr->range = range;
+
 	return expr;
 }
 
@@ -171,7 +153,7 @@ void Fatal(Parser *parser, Token_Range range, const char *fmt, ...) {
 	va_end(args);
 }
 
-#define AllocateExpr(parser, type, range) (Expr_##type *)ExprInit((Expr *)Allocate(parser, sizeof(Expr_##type), _Alignof(Expr_##type)), Expr_Kind_##type, range)
+#define AllocateExpr(parser, type, range) (Expr_##type *)ExprAllocate(parser, sizeof(Expr_##type), Expr_Kind_##type, range)
 
 Token PeekToken(Parser *parser, uint index) {
 	Assert(index <= PARSER_MAX_LOOKUP);
@@ -346,13 +328,13 @@ void InitParser() {
 	BinaryOpPrecedence[Token_Kind_DIVIDE]   = 20;
 }
 
-Expr *Parse(M_Arena *arena, String stream, String source) {
+Expr *Parse(String stream, String source) {
 	InitParser();
 
 	Parser parser;
 	parser.source = source;
-	parser.arena  = arena;
 
+	M_PoolInit(&parser.pool, MegaBytes(16));
 	LexInit(&parser.lexer, stream);
 
 	for (uint i = 0; i < PARSER_MAX_LOOKUP; ++i) {
@@ -364,10 +346,8 @@ Expr *Parse(M_Arena *arena, String stream, String source) {
 }
 
 int main(int argc, const char *argv[]) {
-	String input   = Str("-4 + 5 * (3 - 2)");
-
-	M_Arena *arena = M_ArenaAllocate(0, 0);
-	Expr *expr     = Parse(arena, input, Str("$STDIN"));
+	String input = Str("-4 + 5 * (3 - 2)");
+	Expr *expr   = Parse(input, Str("$STDIN"));
 
 	return 0;
 }
