@@ -5,6 +5,9 @@
 #include <stdio.h>
 
 typedef enum Token_Kind {
+	Token_Kind_ERROR,
+	Token_Kind_EMPTY,
+
 	Token_Kind_INTEGER,
 	Token_Kind_PLUS,
 	Token_Kind_MINUS,

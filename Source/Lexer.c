@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 static const char *TokenKindNames[] = {
-	"Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose"
+	"?", "", "Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose"
 };
 
 static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
@@ -39,85 +39,44 @@ static int UTF8Advance(u8 *beg, u8 *end) {
 	return advance;
 }
 
-typedef enum Lex_State {
-	Lex_State_ERROR,
-	Lex_State_EMPTY,
-	Lex_State_INTEGER,
-	Lex_State_PLUS,
-	Lex_State_MINUS,
-	Lex_State_MULTIPLY,
-	Lex_State_DIVIDE,
-	Lex_State_BRACKET_OPEN,
-	Lex_State_BRACKET_CLOSE,
-
-	Lex_State_COUNT,
-} Lex_State;
-
 typedef enum Lex_Value {
 	Lex_Value_NULL,
 	Lex_Value_INTEGER,
 	Lex_Value_SYMBOL,
-
-	Lex_Value_COUNT
 } Lex_Value;
 
-static_assert(Lex_State_COUNT <= 256, "");
-static_assert(Lex_Value_COUNT <= 256, "");
+static_assert(Token_Kind_END <= 256, "");
 
-static u8   TransitionTable[Lex_State_COUNT][255];
-static uint TransitionOutput[Lex_State_COUNT][Lex_State_COUNT];
-static u8   TransitionValue[Lex_State_COUNT];
-
-enum {
-	Token_Kind_EMPTY = Token_Kind_END + 1
-};
+static u8 TransitionTable[Token_Kind_END][255];
+static u8 TransitionValue[Token_Kind_END];
 
 void LexInitTable() {
 	const u8 WhiteSpaces[] = " \t\n\r\v\f";
 
-	for (int i = 0; i < Lex_State_COUNT; ++i) {
-		for (int j = 0; j < Lex_State_COUNT; ++j) {
-			TransitionOutput[i][j] = Token_Kind_EMPTY;
-		}
-	}
-
-	for (int i = 0; i < Lex_State_COUNT; ++i) {
+	for (int i = 0; i < Token_Kind_END; ++i) {
 		for (int j = 0; j < ArrayCount(WhiteSpaces); ++j) {
-			TransitionTable[i][WhiteSpaces[j]] = Lex_State_EMPTY;
+			TransitionTable[i][WhiteSpaces[j]] = Token_Kind_EMPTY;
 		}
 
 		for (int j = '0'; j <= '9'; ++j) {
-			TransitionTable[i][j] = Lex_State_INTEGER;
+			TransitionTable[i][j] = Token_Kind_INTEGER;
 		}
 
-		TransitionTable[i]['+'] = Lex_State_PLUS;
-		TransitionTable[i]['-'] = Lex_State_MINUS;
-		TransitionTable[i]['*'] = Lex_State_MULTIPLY;
-		TransitionTable[i]['/'] = Lex_State_DIVIDE;
-		TransitionTable[i]['('] = Lex_State_BRACKET_OPEN;
-		TransitionTable[i][')'] = Lex_State_BRACKET_CLOSE;
-
-		TransitionOutput[i][Lex_State_ERROR]         = Token_Kind_END;
-
-		TransitionOutput[Lex_State_INTEGER][i]       = Token_Kind_INTEGER;
-
-		TransitionOutput[Lex_State_PLUS][i]          = Token_Kind_PLUS;
-		TransitionOutput[Lex_State_MINUS][i]         = Token_Kind_MINUS;
-		TransitionOutput[Lex_State_MULTIPLY][i]      = Token_Kind_MULTIPLY;
-		TransitionOutput[Lex_State_DIVIDE][i]        = Token_Kind_DIVIDE;
-		TransitionOutput[Lex_State_BRACKET_OPEN][i]  = Token_Kind_BRACKET_OPEN;
-		TransitionOutput[Lex_State_BRACKET_CLOSE][i] = Token_Kind_BRACKET_CLOSE;
+		TransitionTable[i]['+'] = Token_Kind_PLUS;
+		TransitionTable[i]['-'] = Token_Kind_MINUS;
+		TransitionTable[i]['*'] = Token_Kind_MULTIPLY;
+		TransitionTable[i]['/'] = Token_Kind_DIVIDE;
+		TransitionTable[i]['('] = Token_Kind_BRACKET_OPEN;
+		TransitionTable[i][')'] = Token_Kind_BRACKET_CLOSE;
 	}
 
-	TransitionOutput[Lex_State_EMPTY][Lex_State_EMPTY] = Token_Kind_END;
-
-	TransitionValue[Lex_State_INTEGER]       = Lex_Value_INTEGER;
-	TransitionValue[Lex_State_PLUS]          = Lex_Value_SYMBOL;
-	TransitionValue[Lex_State_MINUS]         = Lex_Value_SYMBOL;
-	TransitionValue[Lex_State_MULTIPLY]      = Lex_Value_SYMBOL;
-	TransitionValue[Lex_State_DIVIDE]        = Lex_Value_SYMBOL;
-	TransitionValue[Lex_State_BRACKET_OPEN]  = Lex_Value_SYMBOL;
-	TransitionValue[Lex_State_BRACKET_CLOSE] = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_INTEGER]        = Lex_Value_INTEGER;
+	TransitionValue[Token_Kind_PLUS]           = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_MINUS]          = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_MULTIPLY]       = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_DIVIDE]         = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_BRACKET_OPEN]   = Lex_Value_SYMBOL;
+	TransitionValue[Token_Kind_BRACKET_CLOSE]  = Lex_Value_SYMBOL;
 }
 
 void LexInit(Lexer *l, String input, M_Pool *pool) {
@@ -136,9 +95,8 @@ static void LexError(Lexer *l, const char *fmt, ...) {
 }
 
 bool LexNext(Lexer *l, Token *token) {
-	Lex_State  curr = Lex_State_EMPTY;
-	Lex_State  next = Lex_State_EMPTY;
-	Token_Kind out  = Token_Kind_END;
+	Token_Kind curr = Token_Kind_EMPTY;
+	Token_Kind next = Token_Kind_EMPTY;
 
 	u8 *beg = l->cursor;
 
@@ -147,7 +105,7 @@ bool LexNext(Lexer *l, Token *token) {
 		u8 ch = *beg;
 		curr  = TransitionTable[curr][ch];
 
-		if (curr != Lex_State_EMPTY)
+		if (curr != Token_Kind_EMPTY)
 			break;
 	}
 
@@ -159,7 +117,7 @@ bool LexNext(Lexer *l, Token *token) {
 		next  = TransitionTable[curr][ch];
 
 		if (curr != next) {
-			if (TransitionOutput[curr][next] != Token_Kind_EMPTY)
+			if (curr != Token_Kind_EMPTY)
 				break;
 			curr = next;
 			beg  = end;
@@ -168,12 +126,12 @@ bool LexNext(Lexer *l, Token *token) {
 
 	l->cursor    = end;
 
-	token->kind  = TransitionOutput[curr][next];
+	token->kind  = curr;
 	token->range = (Token_Range){ beg - l->first, end - l->first };
 
 	memset(&token->value, 0, sizeof(token->value));
 
-	if (next == Lex_State_ERROR) {
+	if (next == Token_Kind_ERROR) {
 		int advance = UTF8Advance(l->cursor, l->last);
 		l->cursor += advance;
 		LexError(l, "bad character: \"%.*s\"", advance, l->cursor);
