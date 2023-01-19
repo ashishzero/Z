@@ -42,6 +42,7 @@ typedef struct Lexer {
 	char    error[1024];
 } Lexer;
 
+void LexInitTable();
 void LexInit(Lexer *l, String input, M_Pool *pool);
 bool LexNext(Lexer *l, Token *token);
 void LexDump(FILE *out, const Token *token);

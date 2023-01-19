@@ -272,6 +272,8 @@ static void InitParser() {
 	if (Initialized) return;
 	Initialized = true;
 
+	LexInitTable();
+
 	BinaryOpPrecedence[Token_Kind_PLUS] = 10;
 	BinaryOpPrecedence[Token_Kind_MINUS] = 10;
 	BinaryOpPrecedence[Token_Kind_MULTIPLY] = 20;

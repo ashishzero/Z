@@ -9,119 +9,8 @@ static const char *TokenKindNames[] = {
 
 static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
 
-static void LexWhiteSpace(Lexer *l) {
-	u8 *pos = l->cursor;
-	for (; pos < l->last; ++pos) {
-		u8 ch = *pos;
-		if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\v' || ch == '\f') {
-			continue;
-		} else {
-			break;
-		}
-	}
-	l->cursor = pos;
-}
-
-static void LexToken(Lexer *l, Token *token, Token_Kind kind, u8 *pos) {
-	token->kind       = kind;
-	token->range.from = l->cursor - l->first;
-	token->range.to   = pos - l->first;
-	l->cursor         = pos;
-}
-
-static void LexError(Lexer *l, Token *token, u8 *pos, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	vsnprintf(l->error, sizeof(l->error), fmt, args);
-	va_end(args);
-
-	LexToken(l, token, Token_Kind_END, pos);
-}
-
-void LexInit(Lexer *l, String input, M_Pool *pool) {
-	l->first    = input.data;
-	l->last     = input.data + input.count;
-	l->cursor   = l->first;
-	l->pool     = pool;
-	l->error[0] = 0;
-}
-
-static const u8 CharacterTokenValues[]    = { '+', '-', '*', '/', '(', ')' };
-static const Token_Kind CharacterTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE,
-												Token_Kind_BRACKET_OPEN, Token_Kind_BRACKET_CLOSE };
-
-static_assert(ArrayCount(CharacterTokens) == ArrayCount(CharacterTokenValues), "");
-
-bool LexNext(Lexer *l, Token *token) {
-	LexWhiteSpace(l);
-
-	if (l->cursor >= l->last) {
-		token->kind       = Token_Kind_END;
-		token->range.from = l->last - l->first;
-		token->range.to   = token->range.from;
-		memset(&token->value, 0, sizeof(token->value));
-		return true;
-	}
-
-	u8 match = *l->cursor;
-
-	for (umem index = 0; index < ArrayCount(CharacterTokenValues); ++index) {
-		if (match == CharacterTokenValues[index]) {
-			Token_Kind kind = CharacterTokens[index];
-			LexToken(l, token, kind, l->cursor + 1);
-			token->value.symbol = match;
-			return true;
-		}
-	}
-
-	if (match >= '0' && match <= '9') {
-		u8 * start = l->cursor;
-		u8 * pos   = l->cursor;
-		umem count = 0;
-
-		for (; pos < l->last; ++pos, ++count) {
-			u8 ch = *pos;
-
-			if (ch >= '0' && ch <= '9') {
-				continue;
-			} else {
-				break;
-			}
-		}
-
-		while (count > 1 && *start == '0') {
-			count -= 1;
-			start += 1;
-		}
-
-		if (count > 255) {
-			token->kind = Token_Kind_END;
-			LexError(l, token, pos, "integer literal is too big");
-			return false;
-		}
-
-		char buff[256];
-		memcpy(buff, start, count);
-		buff[count] = 0;
-
-		char *endptr = nullptr;
-		u64 value    = strtoull(buff, &endptr, 10);
-
-		if (endptr != buff + count || errno == ERANGE) {
-			token->kind = Token_Kind_END;
-			LexError(l, token, pos, "integer literal is too big");
-			return false;
-		}
-
-		LexToken(l, token, Token_Kind_INTEGER, pos);
-		token->value.integer = value;
-
-		return true;
-	}
-
-	// Advance UTF-8
-
-	u32 codepoint = *l->cursor;
+static int UTF8Advance(u8 *beg, u8 *end) {
+	u32 codepoint = *beg;
 
 	int advance;
 	if ((codepoint & 0x80) == 0x00) {
@@ -134,21 +23,205 @@ bool LexNext(Lexer *l, Token *token) {
 		advance = 4;
 	}
 
-	if (l->cursor + advance >= l->last) {
-		advance = (int)(l->last - l->cursor);
+	if (beg + advance < end) {
+		end = beg + advance;
 	}
 
-	u8 *pos = l->cursor + 1;
+	// Validate and set actual advance
+	advance = 1;
+	u8 *pos = beg + 1;
+	for (; pos < end; ++pos) {
+		if (((*pos) & 0xc0) != 0x80)
+			break; // invalid continuation character
+		advance += 1;
+	}
 
-	for (int i = 1; i < advance; ++i) {
-		if ((pos[i] & 0xc0) == 0x80) {
-			pos += 1;
+	return advance;
+}
+
+typedef enum Lex_State {
+	Lex_State_ERROR,
+	Lex_State_EMPTY,
+	Lex_State_INTEGER,
+	Lex_State_PLUS,
+	Lex_State_MINUS,
+	Lex_State_MULTIPLY,
+	Lex_State_DIVIDE,
+	Lex_State_BRACKET_OPEN,
+	Lex_State_BRACKET_CLOSE,
+
+	Lex_State_COUNT,
+} Lex_State;
+
+typedef enum Lex_Value {
+	Lex_Value_NULL,
+	Lex_Value_INTEGER,
+	Lex_Value_SYMBOL,
+
+	Lex_Value_COUNT
+} Lex_Value;
+
+static_assert(Lex_State_COUNT <= 256, "");
+static_assert(Lex_Value_COUNT <= 256, "");
+
+static u8   TransitionTable[Lex_State_COUNT][255];
+static uint TransitionOutput[Lex_State_COUNT][Lex_State_COUNT];
+static u8   TransitionValue[Lex_State_COUNT];
+
+enum {
+	Token_Kind_EMPTY = Token_Kind_END + 1
+};
+
+void LexInitTable() {
+	const u8 WhiteSpaces[] = " \t\n\r\v\f";
+
+	for (int i = 0; i < Lex_State_COUNT; ++i) {
+		for (int j = 0; j < Lex_State_COUNT; ++j) {
+			TransitionOutput[i][j] = Token_Kind_EMPTY;
 		}
 	}
 
-	LexError(l, token, pos, "bad character: \"%.*s\"", advance, l->cursor);
+	for (int i = 0; i < Lex_State_COUNT; ++i) {
+		for (int j = 0; j < ArrayCount(WhiteSpaces); ++j) {
+			TransitionTable[i][WhiteSpaces[j]] = Lex_State_EMPTY;
+		}
 
-	return false;
+		for (int j = '0'; j <= '9'; ++j) {
+			TransitionTable[i][j] = Lex_State_INTEGER;
+		}
+
+		TransitionTable[i]['+'] = Lex_State_PLUS;
+		TransitionTable[i]['-'] = Lex_State_MINUS;
+		TransitionTable[i]['*'] = Lex_State_MULTIPLY;
+		TransitionTable[i]['/'] = Lex_State_DIVIDE;
+		TransitionTable[i]['('] = Lex_State_BRACKET_OPEN;
+		TransitionTable[i][')'] = Lex_State_BRACKET_CLOSE;
+
+		TransitionOutput[i][Lex_State_ERROR]         = Token_Kind_END;
+
+		TransitionOutput[Lex_State_INTEGER][i]       = Token_Kind_INTEGER;
+
+		TransitionOutput[Lex_State_PLUS][i]          = Token_Kind_PLUS;
+		TransitionOutput[Lex_State_MINUS][i]         = Token_Kind_MINUS;
+		TransitionOutput[Lex_State_MULTIPLY][i]      = Token_Kind_MULTIPLY;
+		TransitionOutput[Lex_State_DIVIDE][i]        = Token_Kind_DIVIDE;
+		TransitionOutput[Lex_State_BRACKET_OPEN][i]  = Token_Kind_BRACKET_OPEN;
+		TransitionOutput[Lex_State_BRACKET_CLOSE][i] = Token_Kind_BRACKET_CLOSE;
+	}
+
+	TransitionOutput[Lex_State_EMPTY][Lex_State_EMPTY] = Token_Kind_END;
+
+	TransitionValue[Lex_State_INTEGER]       = Lex_Value_INTEGER;
+	TransitionValue[Lex_State_PLUS]          = Lex_Value_SYMBOL;
+	TransitionValue[Lex_State_MINUS]         = Lex_Value_SYMBOL;
+	TransitionValue[Lex_State_MULTIPLY]      = Lex_Value_SYMBOL;
+	TransitionValue[Lex_State_DIVIDE]        = Lex_Value_SYMBOL;
+	TransitionValue[Lex_State_BRACKET_OPEN]  = Lex_Value_SYMBOL;
+	TransitionValue[Lex_State_BRACKET_CLOSE] = Lex_Value_SYMBOL;
+}
+
+void LexInit(Lexer *l, String input, M_Pool *pool) {
+	l->first    = input.data;
+	l->last     = input.data + input.count;
+	l->cursor   = l->first;
+	l->pool     = pool;
+	l->error[0] = 0;
+}
+
+static void LexError(Lexer *l, const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(l->error, sizeof(l->error), fmt, args);
+	va_end(args);
+}
+
+bool LexNext(Lexer *l, Token *token) {
+	Lex_State  curr = Lex_State_EMPTY;
+	Lex_State  next = Lex_State_EMPTY;
+	Token_Kind out  = Token_Kind_END;
+
+	u8 *beg = l->cursor;
+
+	// Trim whitespaces (optimization)
+	for (; beg < l->last; ++beg) {
+		u8 ch = *beg;
+		curr  = TransitionTable[curr][ch];
+
+		if (curr != Lex_State_EMPTY)
+			break;
+	}
+
+	u8 *end = beg + 1;
+
+	// Find token
+	for (; end < l->last; ++end) {
+		u8 ch = *end;
+		next  = TransitionTable[curr][ch];
+
+		if (curr != next) {
+			if (TransitionOutput[curr][next] != Token_Kind_EMPTY)
+				break;
+			curr = next;
+			beg  = end;
+		}
+	}
+
+	l->cursor    = end;
+
+	token->kind  = TransitionOutput[curr][next];
+	token->range = (Token_Range){ beg - l->first, end - l->first };
+
+	memset(&token->value, 0, sizeof(token->value));
+
+	if (next == Lex_State_ERROR) {
+		int advance = UTF8Advance(l->cursor, l->last);
+		l->cursor += advance;
+		LexError(l, "bad character: \"%.*s\"", advance, l->cursor);
+		return false;
+	}
+
+	Lex_Value out_value = TransitionValue[curr];
+
+	if (out_value == Lex_Value_INTEGER) {
+		u8 *start = beg;
+
+		while (start < end && *start == '0') {
+			start += 1;
+		}
+
+		int count = (int)(end - start);
+
+		if (count > 255) {
+			token->kind = Token_Kind_END;
+			LexError(l, "integer literal is too big");
+			return false;
+		}
+
+		char buff[256];
+		memcpy(buff, start, count);
+		buff[count] = 0;
+
+		char *endptr = nullptr;
+		u64 value    = strtoull(buff, &endptr, 10);
+
+		if (endptr != buff + count || errno == ERANGE) {
+			token->kind = Token_Kind_END;
+			LexError(l, "integer literal is too big");
+			return false;
+		}
+
+		token->value.integer = value;
+
+		return true;
+	}
+
+	if (out_value == Lex_Value_SYMBOL) {
+		Assert(token->range.to - token->range.from == 1);
+		token->value.symbol = *beg;
+		return true;
+	}
+
+	return true;
 }
 
 void LexDump(FILE *out, const Token *token) {
