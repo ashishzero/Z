@@ -73,9 +73,23 @@ static Lex_State  TransitionTable[Lex_State_COUNT][255];
 static Lex_Prod   ProductionTable[Lex_State_COUNT][Lex_State_COUNT];
 static Token_Kind TokenKindMap[Lex_State_COUNT];
 
+static void LexUpdateTransition(const Lex_State *const entries, int count, Lex_State next, u8 ch) {
+	for (int i = 0; i < count; ++i) {
+		Lex_State entry = entries[i];
+		TransitionTable[entry][ch] = next;
+	}
+}
+
+static void LexUpdateTransitionRange(const Lex_State *const entries, int count, Lex_State next, u8 first, u8 last) {
+	for (u8 i = first; i <= last; ++i) {
+		LexUpdateTransition(entries, count, next, i);
+	}
+}
+
 void LexInitTable(void) {
 	const u8 Whitespaces[] = " \t\n\r\v\f";
 
+	// Single Byte Tokens
 	for (int i = 0; i < Lex_State_COUNT; ++i) {
 		for (int j = 0; j < ArrayCount(Whitespaces); ++j) {
 			TransitionTable[i][Whitespaces[j]] = Lex_State_Whitespace;
@@ -90,90 +104,45 @@ void LexInitTable(void) {
 		TransitionTable[i]['='] = Lex_State_Equals;
 	}
 
-	for (int i = '0'; i <= '9'; ++i) {
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Integer;
-		TransitionTable[Lex_State_Integer][i]       = Lex_State_Integer;
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Integer;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Integer;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Integer;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Integer;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Integer;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Integer;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
-	}
+	const Lex_State IntegerEntries[] = {
+		Lex_State_Plus, Lex_State_Minus, Lex_State_Multiply, Lex_State_Divide, 
+		Lex_State_Bracket_Open, Lex_State_Bracket_Close,
+		Lex_State_Whitespace, Lex_State_Integer
+	};
 
-	TransitionTable[Lex_State_Plus]['_']            = Lex_State_Identifier;
-	TransitionTable[Lex_State_Minus]['_']           = Lex_State_Identifier;
-	TransitionTable[Lex_State_Multiply]['_']        = Lex_State_Identifier;
-	TransitionTable[Lex_State_Divide]['_']          = Lex_State_Identifier;
-	TransitionTable[Lex_State_Bracket_Open]['_']    = Lex_State_Identifier;
-	TransitionTable[Lex_State_Bracket_Close]['_']   = Lex_State_Identifier;
-	TransitionTable[Lex_State_Identifier]['_']      = Lex_State_Identifier;
+	LexUpdateTransitionRange(IntegerEntries, ArrayCount(IntegerEntries), Lex_State_Integer, '0', '9');
 
-	for (int i = 'a'; i <= 'z'; ++i) {
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier;
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
-	}
+	const Lex_State IdentifierEntries[] = {
+		Lex_State_Plus, Lex_State_Minus, Lex_State_Multiply, Lex_State_Divide,
+		Lex_State_Bracket_Open, Lex_State_Bracket_Close, Lex_State_Equals,
+		Lex_State_Whitespace, Lex_State_Identifier
+	};
 
-	for (int i = 'A'; i <= 'Z'; ++i) {
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier;
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
-	}
+	LexUpdateTransition(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier, '_');
+	LexUpdateTransitionRange(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier, 'a', 'z');
+	LexUpdateTransitionRange(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier, 'A', 'Z');
 
-	// 2 bytes unicode
-	for (int i = 192; i <= 223; ++i) {
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont1;
-	}
+	const Lex_State IdentifierMids[] = { Lex_State_Identifier };
+	LexUpdateTransitionRange(IdentifierMids, ArrayCount(IdentifierMids), Lex_State_Identifier, '0', '9');
+
+	// 2 byte unicode
+	LexUpdateTransitionRange(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier_Cont1, 192, 223);
 
 	// 3 bytes unicode
-	for (int i = 224; i <= 239; ++i) {
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont2;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont2;
-	}
+	LexUpdateTransitionRange(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier_Cont2, 224, 239);
 
 	// 4 bytes unicode
-	for (int i = 240; i <= 247; ++i) {
-		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont3;
-		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont3;
-	}
+	LexUpdateTransitionRange(IdentifierEntries, ArrayCount(IdentifierEntries), Lex_State_Identifier_Cont3, 240, 247);
 
 	// continuation bytes
-	for (int i = 128; i <= 191; ++i) {
-		TransitionTable[Lex_State_Identifier_Cont1][i] = Lex_State_Identifier;
-		TransitionTable[Lex_State_Identifier_Cont2][i] = Lex_State_Identifier_Cont1;
-		TransitionTable[Lex_State_Identifier_Cont3][i] = Lex_State_Identifier_Cont2;
-	}
+	const Lex_State IdentifierContEntries[] = { Lex_State_Identifier_Cont1 };
+	LexUpdateTransitionRange(IdentifierContEntries, ArrayCount(IdentifierContEntries), Lex_State_Identifier, 128, 191);
+
+	const Lex_State IdentifierCont1Entries[] = { Lex_State_Identifier_Cont2 };
+	LexUpdateTransitionRange(IdentifierCont1Entries, ArrayCount(IdentifierCont1Entries), Lex_State_Identifier_Cont1, 128, 191);
+
+	const Lex_State IdentifierCont2Entries[] = { Lex_State_Identifier_Cont3 };
+	LexUpdateTransitionRange(IdentifierCont2Entries, ArrayCount(IdentifierCont2Entries), Lex_State_Identifier_Cont2, 128, 191);
 
 	for (int i = 0; i < Lex_State_COUNT; ++i) {
 		ProductionTable[i][Lex_State_Error]         = Lex_Prod_Token;
