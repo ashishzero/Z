@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 static const char *TokenKindNames[] = {
-	"?", "", "True", "False", "Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose", "Equals", "Identifier"
+	"True", "False", "Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose", "Equals", "Identifier"
 };
 
 static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
@@ -39,67 +39,174 @@ static int UTF8Advance(u8 *beg, u8 *end) {
 	return advance;
 }
 
-typedef enum Lex_Value {
-	Lex_Value_NULL,
-	Lex_Value_INTEGER,
-	Lex_Value_SYMBOL,
-	Lex_Value_STRING,
-} Lex_Value;
+typedef enum Lex_Prod {
+	Lex_Prod_None,
+	Lex_Prod_Reset,
+	Lex_Prod_Token,
+	Lex_Prod_Integer,
+	Lex_Prod_Symbol,
+	Lex_Prod_Identifier,
+} Lex_Prod;
 
-static_assert(Token_Kind_END <= 256, "");
+typedef enum Lex_State {
+	Lex_State_Error,
+	Lex_State_Whitespace,
+	Lex_State_Plus,
+	Lex_State_Minus,
+	Lex_State_Multiply,
+	Lex_State_Divide,
+	Lex_State_Bracket_Open,
+	Lex_State_Bracket_Close,
+	Lex_State_Equals,
+	Lex_State_Integer,
+	Lex_State_Identifier,
+	Lex_State_Identifier_Cont1,
+	Lex_State_Identifier_Cont2,
+	Lex_State_Identifier_Cont3,
 
-static u8 TransitionTable[Token_Kind_END][255];
-static u8 TransitionValue[Token_Kind_END];
+	Lex_State_COUNT
+} Lex_State;
+
+static_assert(Lex_State_COUNT <= 256, "");
+
+static Lex_State  TransitionTable[Lex_State_COUNT][255];
+static Lex_Prod   ProductionTable[Lex_State_COUNT][Lex_State_COUNT];
+static Token_Kind TokenKindMap[Lex_State_COUNT];
 
 void LexInitTable(void) {
-	const u8 WhiteSpaces[] = " \t\n\r\v\f";
+	const u8 Whitespaces[] = " \t\n\r\v\f";
 
-	for (int i = 0; i < Token_Kind_END; ++i) {
-		for (int j = 0; j < ArrayCount(WhiteSpaces); ++j) {
-			TransitionTable[i][WhiteSpaces[j]] = Token_Kind_EMPTY;
+	for (int i = 0; i < Lex_State_COUNT; ++i) {
+		for (int j = 0; j < ArrayCount(Whitespaces); ++j) {
+			TransitionTable[i][Whitespaces[j]] = Lex_State_Whitespace;
 		}
 
-		TransitionTable[i]['+'] = Token_Kind_PLUS;
-		TransitionTable[i]['-'] = Token_Kind_MINUS;
-		TransitionTable[i]['*'] = Token_Kind_MULTIPLY;
-		TransitionTable[i]['/'] = Token_Kind_DIVIDE;
-		TransitionTable[i]['('] = Token_Kind_BRACKET_OPEN;
-		TransitionTable[i][')'] = Token_Kind_BRACKET_CLOSE;
-		TransitionTable[i]['='] = Token_Kind_EQUALS;
+		TransitionTable[i]['+'] = Lex_State_Plus;
+		TransitionTable[i]['-'] = Lex_State_Minus;
+		TransitionTable[i]['*'] = Lex_State_Multiply;
+		TransitionTable[i]['/'] = Lex_State_Divide;
+		TransitionTable[i]['('] = Lex_State_Bracket_Open;
+		TransitionTable[i][')'] = Lex_State_Bracket_Close;
+		TransitionTable[i]['='] = Lex_State_Equals;
 	}
 
 	for (int i = '0'; i <= '9'; ++i) {
-		TransitionTable[Token_Kind_EMPTY][i]         = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_INTEGER][i]       = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_PLUS][i]          = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_MULTIPLY][i]      = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_DIVIDE][i]        = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_BRACKET_OPEN][i]  = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_BRACKET_CLOSE][i] = Token_Kind_INTEGER;
-		TransitionTable[Token_Kind_IDENTIFIER][i]    = Token_Kind_IDENTIFIER;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Integer;
+		TransitionTable[Lex_State_Integer][i]       = Lex_State_Integer;
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Integer;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Integer;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Integer;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Integer;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Integer;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Integer;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
 	}
 
-	TransitionTable[Token_Kind_IDENTIFIER]['_'] = Token_Kind_IDENTIFIER;
+	TransitionTable[Lex_State_Plus]['_']            = Lex_State_Identifier;
+	TransitionTable[Lex_State_Minus]['_']           = Lex_State_Identifier;
+	TransitionTable[Lex_State_Multiply]['_']        = Lex_State_Identifier;
+	TransitionTable[Lex_State_Divide]['_']          = Lex_State_Identifier;
+	TransitionTable[Lex_State_Bracket_Open]['_']    = Lex_State_Identifier;
+	TransitionTable[Lex_State_Bracket_Close]['_']   = Lex_State_Identifier;
+	TransitionTable[Lex_State_Identifier]['_']      = Lex_State_Identifier;
 
 	for (int i = 'a'; i <= 'z'; ++i) {
-		TransitionTable[Token_Kind_IDENTIFIER][i] = Token_Kind_IDENTIFIER;
-		TransitionTable[Token_Kind_EMPTY][i]      = Token_Kind_IDENTIFIER;
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
 	}
 
 	for (int i = 'A'; i <= 'Z'; ++i) {
-		TransitionTable[Token_Kind_IDENTIFIER][i] = Token_Kind_IDENTIFIER;
-		TransitionTable[Token_Kind_EMPTY][i]      = Token_Kind_IDENTIFIER;
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier;
 	}
 
-	TransitionValue[Token_Kind_INTEGER]         = Lex_Value_INTEGER;
-	TransitionValue[Token_Kind_PLUS]            = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_MINUS]           = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_MULTIPLY]        = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_DIVIDE]          = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_BRACKET_OPEN]    = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_BRACKET_CLOSE]   = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_EQUALS]          = Lex_Value_SYMBOL;
-	TransitionValue[Token_Kind_IDENTIFIER]      = Lex_Value_STRING;
+	// 2 bytes unicode
+	for (int i = 192; i <= 223; ++i) {
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont1;
+	}
+
+	// 3 bytes unicode
+	for (int i = 224; i <= 239; ++i) {
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont2;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont2;
+	}
+
+	// 4 bytes unicode
+	for (int i = 240; i <= 247; ++i) {
+		TransitionTable[Lex_State_Plus][i]          = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Minus][i]         = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Multiply][i]      = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Divide][i]        = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Bracket_Open][i]  = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Bracket_Close][i] = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Whitespace][i]    = Lex_State_Identifier_Cont3;
+		TransitionTable[Lex_State_Identifier][i]    = Lex_State_Identifier_Cont3;
+	}
+
+	// continuation bytes
+	for (int i = 128; i <= 191; ++i) {
+		TransitionTable[Lex_State_Identifier_Cont1][i] = Lex_State_Identifier;
+		TransitionTable[Lex_State_Identifier_Cont2][i] = Lex_State_Identifier_Cont1;
+		TransitionTable[Lex_State_Identifier_Cont3][i] = Lex_State_Identifier_Cont2;
+	}
+
+	for (int i = 0; i < Lex_State_COUNT; ++i) {
+		ProductionTable[i][Lex_State_Error]         = Lex_Prod_Token;
+		ProductionTable[Lex_State_Whitespace][i]    = Lex_Prod_Reset;
+		ProductionTable[Lex_State_Identifier][i]    = Lex_Prod_Identifier;
+		ProductionTable[Lex_State_Integer][i]       = Lex_Prod_Integer;
+		ProductionTable[Lex_State_Plus][i]          = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Minus][i]         = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Multiply][i]      = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Divide][i]        = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Bracket_Open][i]  = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Bracket_Close][i] = Lex_Prod_Symbol;
+		ProductionTable[Lex_State_Equals][i]        = Lex_Prod_Symbol;
+	}
+
+	ProductionTable[Lex_State_Identifier][Lex_State_Identifier]       = Lex_Prod_None;
+	ProductionTable[Lex_State_Identifier][Lex_State_Identifier_Cont1] = Lex_Prod_None;
+	ProductionTable[Lex_State_Identifier][Lex_State_Identifier_Cont2] = Lex_Prod_None;
+	ProductionTable[Lex_State_Identifier][Lex_State_Identifier_Cont3] = Lex_Prod_None;
+	ProductionTable[Lex_State_Integer][Lex_State_Integer]             = Lex_Prod_None;
+
+	for (int i = 0; i < Lex_State_COUNT; ++i)
+		TokenKindMap[i] = Token_Kind_END;
+
+	TokenKindMap[Lex_State_Plus]          = Token_Kind_Plus;
+	TokenKindMap[Lex_State_Minus]         = Token_Kind_Minus;
+	TokenKindMap[Lex_State_Multiply]      = Token_Kind_Multiply;
+	TokenKindMap[Lex_State_Divide]        = Token_Kind_Divide;
+	TokenKindMap[Lex_State_Bracket_Open]  = Token_Kind_Bracket_Open;
+	TokenKindMap[Lex_State_Bracket_Close] = Token_Kind_Bracket_Close;
+	TokenKindMap[Lex_State_Equals]        = Token_Kind_Equals;
+	TokenKindMap[Lex_State_Integer]       = Token_Kind_Integer;
+	TokenKindMap[Lex_State_Identifier]    = Token_Kind_Identifier;
 }
 
 void LexInit(Lexer *l, String input, M_Pool *pool) {
@@ -118,55 +225,42 @@ static void LexError(Lexer *l, const char *fmt, ...) {
 }
 
 bool LexNext(Lexer *l, Token *token) {
-	Token_Kind curr = Token_Kind_EMPTY;
-	Token_Kind next = Token_Kind_EMPTY;
+	Lex_State curr = Lex_State_Whitespace;
+	Lex_Prod  prod = Lex_Prod_None;
 
 	u8 *beg = l->cursor;
-
-	// Trim whitespaces (optimization)
-	for (; beg < l->last; ++beg) {
-		u8 ch = *beg;
-		curr  = TransitionTable[curr][ch];
-
-		if (curr != Token_Kind_EMPTY)
-			break;
-	}
-
 	u8 *end = beg;
 
-	if (curr != Token_Kind_ERROR) {
-		// Find token
-		end += 1;
-		for (; end < l->last; ++end) {
-			u8 ch = *end;
-			next  = TransitionTable[curr][ch];
+	for (; end < l->last; ++end) {
+		Lex_State next = TransitionTable[curr][*end];
 
-			if (curr != next) {
-				if (curr != Token_Kind_EMPTY)
-					break;
-				curr = next;
-				beg  = end;
-			}
+		prod = ProductionTable[curr][next];
+
+		if (prod > Lex_Prod_Reset) {
+			break;
 		}
+
+		if (prod == Lex_Prod_Reset)
+			beg = end;
+
+		curr = next;
 	}
 
 	l->cursor    = end;
 
-	token->kind  = curr;
+	token->kind  = TokenKindMap[curr];
 	token->range = (Token_Range){ beg - l->first, end - l->first };
 
 	memset(&token->value, 0, sizeof(token->value));
 
-	if (curr == Token_Kind_ERROR) {
+	if (curr == Lex_State_Error) {
 		int advance = UTF8Advance(l->cursor, l->last);
 		LexError(l, "bad character: \"%.*s\"", advance, l->cursor);
 		l->cursor += advance;
 		return false;
 	}
 
-	Lex_Value out_value = TransitionValue[curr];
-
-	if (out_value == Lex_Value_INTEGER) {
+	if (prod == Lex_Prod_Integer) {
 		u8 *start = beg;
 
 		while (start < end && *start == '0') {
@@ -199,17 +293,19 @@ bool LexNext(Lexer *l, Token *token) {
 		return true;
 	}
 
-	if (out_value == Lex_Value_SYMBOL) {
+	if (prod == Lex_Prod_Symbol) {
 		Assert(token->range.to - token->range.from == 1);
 		token->value.symbol = *beg;
 		return true;
 	}
 
-	if (out_value == Lex_Value_STRING) {
+	if (prod == Lex_Prod_Identifier) {
 		umem count = end - beg;
-		u8 * data  = M_PoolPush(l->pool, count, 1, 0);
+		u8 * data  = M_PoolPush(l->pool, count + 1, 1, 0);
 
 		memcpy(data, beg, count);
+		data[count] = 0;
+
 		token->value.string = (String){ .count=count, .data=data };
 		return true;
 	}
@@ -219,16 +315,31 @@ bool LexNext(Lexer *l, Token *token) {
 
 void LexDump(FILE *out, const Token *token) {
 	const char *name = TokenKindNames[token->kind];
-	fprintf(out, ".%s", name);
+	fprintf(out, ".%s ", name);
 
-	if (token->kind == Token_Kind_INTEGER) {
-		fprintf(out, "(%zu) ", token->value.integer);
-	} else if (token->kind == Token_Kind_IDENTIFIER) {
-		fprintf(out, "(" StrFmt ") ", StrArg(token->value.string));
-	} else if (token->kind == Token_Kind_PLUS || token->kind == Token_Kind_MINUS ||
-		token->kind == Token_Kind_MULTIPLY || token->kind == Token_Kind_MULTIPLY) {
-		fprintf(out, "(%c) ", (char)token->value.symbol);
-	} else if (token->kind == Token_Kind_EQUALS) {
-		fprintf(out, "(=) ");
+	switch (token->kind) {
+	case Token_Kind_Integer:
+		fprintf(out, "%zu", token->value.integer);
+		break;
+	case Token_Kind_Identifier:
+		fprintf(out, StrFmt, StrArg(token->value.string));
+		break;
+	case Token_Kind_Plus:
+	case Token_Kind_Minus:
+	case Token_Kind_Multiply:
+	case Token_Kind_Divide:
+		fprintf(out, "%c", (char)token->value.symbol);
+		break;
+	case Token_Kind_Bracket_Open:
+		fprintf(out, "(");
+		break;
+	case Token_Kind_Bracket_Close:
+		fprintf(out, ")");
+		break;
+	case Token_Kind_Equals:
+		fprintf(out, "=");
+		break;
 	}
+
+	fprintf(out, "\n");
 }

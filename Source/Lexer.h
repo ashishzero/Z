@@ -5,20 +5,17 @@
 #include <stdio.h>
 
 typedef enum Token_Kind {
-	Token_Kind_ERROR,
-	Token_Kind_EMPTY,
-
-	Token_Kind_TRUE,
-	Token_Kind_FALSE,
-	Token_Kind_INTEGER,
-	Token_Kind_PLUS,
-	Token_Kind_MINUS,
-	Token_Kind_MULTIPLY,
-	Token_Kind_DIVIDE,
-	Token_Kind_BRACKET_OPEN,
-	Token_Kind_BRACKET_CLOSE,
-	Token_Kind_EQUALS,
-	Token_Kind_IDENTIFIER,
+	Token_Kind_True,
+	Token_Kind_False,
+	Token_Kind_Integer,
+	Token_Kind_Plus,
+	Token_Kind_Minus,
+	Token_Kind_Multiply,
+	Token_Kind_Divide,
+	Token_Kind_Bracket_Open,
+	Token_Kind_Bracket_Close,
+	Token_Kind_Equals,
+	Token_Kind_Identifier,
 
 	Token_Kind_END,
 } Token_Kind;

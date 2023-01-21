@@ -192,7 +192,7 @@ static void AdvanceTokenHelper(Parser *parser) {
 
 static void AdvanceToken(Parser *parser) {
 #ifdef PARSER_DUMP_TOKENS
-	fprintf(stdout, "T");
+	fprintf(stdout, " Token");
 	LexDump(stdout, &parser->lookup[0]);
 #endif
 
@@ -210,31 +210,31 @@ static Expr *ParseExpression(Parser *parser, int prev_prec);
 static Expr *ParseTerm(Parser *parser) {
 	Token token = NextToken(parser);
 
-	if (token.kind == Token_Kind_IDENTIFIER) {
+	if (token.kind == Token_Kind_Identifier) {
 		Expr_Identifier *expr = AllocateExpr(parser, Identifier, token.range);
 		expr->name = token.value.string;
 		return &expr->base;
 	}
 
-	if (token.kind == Token_Kind_INTEGER) {
+	if (token.kind == Token_Kind_Integer) {
 		Expr_Literal *expr = AllocateExpr(parser, Literal, token.range);
 		expr->value = token.value;
 		expr->base.type = &ExprBuiltinUnsigned64.base;
 		return &expr->base;
 	}
 
-	if (token.kind == Token_Kind_PLUS || token.kind == Token_Kind_MINUS) {
+	if (token.kind == Token_Kind_Plus || token.kind == Token_Kind_Minus) {
 		Expr_Unary_Operator *expr = AllocateExpr(parser, Unary_Operator, token.range);
 		expr->child = ParseTerm(parser);
 		expr->symbol = token.value.symbol;
 		return &expr->base;
 	}
 
-	if (token.kind == Token_Kind_BRACKET_OPEN) {
+	if (token.kind == Token_Kind_Bracket_Open) {
 		Expr *expr = ParseExpression(parser, 0);
 
 		token = NextToken(parser);
-		if (token.kind != Token_Kind_BRACKET_CLOSE) {
+		if (token.kind != Token_Kind_Bracket_Close) {
 			Fatal(parser, token.range, "expected \")\"");
 		}
 
@@ -246,7 +246,7 @@ static Expr *ParseTerm(Parser *parser) {
 	return nullptr;
 }
 
-static const Token_Kind BinaryOpTokens[] = { Token_Kind_PLUS, Token_Kind_MINUS, Token_Kind_MULTIPLY, Token_Kind_DIVIDE };
+static const Token_Kind BinaryOpTokens[] = { Token_Kind_Plus, Token_Kind_Minus, Token_Kind_Multiply, Token_Kind_Divide };
 
 static Expr *ParseExpression(Parser *parser, int prev_prec) {
 	Expr *expr = ParseTerm(parser);
@@ -255,7 +255,7 @@ static Expr *ParseExpression(Parser *parser, int prev_prec) {
 		token.kind != Token_Kind_END;
 		token = PeekToken(parser, 0)) {
 
-		if (token.kind == Token_Kind_EQUALS) {
+		if (token.kind == Token_Kind_Equals) {
 			AdvanceToken(parser);
 
 			Expr_Assignment *assign = AllocateExpr(parser, Assignment, token.range);
@@ -309,10 +309,10 @@ static void InitParser(void) {
 
 	LexInitTable();
 
-	BinaryOpPrecedence[Token_Kind_PLUS] = 10;
-	BinaryOpPrecedence[Token_Kind_MINUS] = 10;
-	BinaryOpPrecedence[Token_Kind_MULTIPLY] = 20;
-	BinaryOpPrecedence[Token_Kind_DIVIDE] = 20;
+	BinaryOpPrecedence[Token_Kind_Plus] = 10;
+	BinaryOpPrecedence[Token_Kind_Minus] = 10;
+	BinaryOpPrecedence[Token_Kind_Multiply] = 20;
+	BinaryOpPrecedence[Token_Kind_Divide] = 20;
 }
 
 Expr *Parse(String stream, String source, M_Pool *pool) {
