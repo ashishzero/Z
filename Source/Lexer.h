@@ -8,6 +8,8 @@ typedef enum Token_Kind {
 	Token_Kind_ERROR,
 	Token_Kind_EMPTY,
 
+	Token_Kind_TRUE,
+	Token_Kind_FALSE,
 	Token_Kind_INTEGER,
 	Token_Kind_PLUS,
 	Token_Kind_MINUS,
@@ -15,6 +17,7 @@ typedef enum Token_Kind {
 	Token_Kind_DIVIDE,
 	Token_Kind_BRACKET_OPEN,
 	Token_Kind_BRACKET_CLOSE,
+	Token_Kind_IDENTIFIER,
 
 	Token_Kind_END,
 } Token_Kind;
@@ -45,7 +48,7 @@ typedef struct Lexer {
 	char    error[1024];
 } Lexer;
 
-void LexInitTable();
+void LexInitTable(void);
 void LexInit(Lexer *l, String input, M_Pool *pool);
 bool LexNext(Lexer *l, Token *token);
 void LexDump(FILE *out, const Token *token);

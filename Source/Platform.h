@@ -161,14 +161,14 @@
 #ifdef __GNUC__
 _Noreturn inproc __attribute__((always_inline)) void Unreachable() { DebugTriggerbreakpoint(); __builtin_unreachable(); }
 #elif defined(_MSC_VER)
-_Noreturn __forceinline void Unreachable() { DebugTriggerbreakpoint(); __assume(false); }
+_Noreturn __forceinline void Unreachable(void) { DebugTriggerbreakpoint(); __assume(false); }
 #else // ???
-inproc void Unreachable() { TriggerBreakpoint(); }
+inproc void Unreachable(void) { TriggerBreakpoint(); }
 #endif
 
 #define NoDefaultCase() default: Unreachable(); break
 
-_Noreturn inproc void Unimplemented() { TriggerBreakpoint(); Unreachable(); }
+_Noreturn inproc void Unimplemented(void) { TriggerBreakpoint(); Unreachable(); }
 
 //
 //
@@ -250,5 +250,5 @@ typedef ptrdiff_t imem;
 
 typedef struct String {
     imem count;
-    u8 *data;
+    u8  *data;
 } String;

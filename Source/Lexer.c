@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 static const char *TokenKindNames[] = {
-	"?", "", "Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose"
+	"?", "", "True", "False", "Integer", "Plus", "Minus", "Multiply", "Divide", "BracketOpen", "BracketClose", "Identifier"
 };
 
 static_assert(ArrayCount(TokenKindNames) == Token_Kind_END, "");
@@ -50,7 +50,7 @@ static_assert(Token_Kind_END <= 256, "");
 static u8 TransitionTable[Token_Kind_END][255];
 static u8 TransitionValue[Token_Kind_END];
 
-void LexInitTable() {
+void LexInitTable(void) {
 	const u8 WhiteSpaces[] = " \t\n\r\v\f";
 
 	for (int i = 0; i < Token_Kind_END; ++i) {

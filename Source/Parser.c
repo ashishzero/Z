@@ -266,7 +266,7 @@ static Expr *ParseStatement(Parser *parser) {
 	return expr;
 }
 
-static void InitParser() {
+static void InitParser(void) {
 	static bool Initialized = false;
 
 	if (Initialized) return;
