@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 static const char *ExprKindNames[] = {
-	"Literal", "Unary Operator", "Binary Operator"
+	"Literal", "Identifier", "Unary Operator", "Binary Operator", "Assignment"
 };
 static_assert(ArrayCount(ExprKindNames) == Expr_Kind_COUNT, "");
 
@@ -48,6 +48,14 @@ static void ExprDump(FILE *out, Expr *root, uint indent) {
 		fprintf(out, "\n");
 	} break;
 
+	case Expr_Kind_Identifier:
+	{
+		Expr_Identifier *expr = (Expr_Identifier *)root;
+		fprintf(out, "(" StrFmt ") ", StrArg(expr->name));
+		ExprTypeDump(out, root->type);
+		fprintf(out, "\n");
+	} break;
+
 	case Expr_Kind_Unary_Operator:
 	{
 		Expr_Unary_Operator *expr = (Expr_Unary_Operator *)root;
@@ -61,6 +69,16 @@ static void ExprDump(FILE *out, Expr *root, uint indent) {
 	{
 		Expr_Binary_Operator *expr = (Expr_Binary_Operator *)root;
 		fprintf(out, "(%c) ", (char)expr->symbol);
+		ExprTypeDump(out, root->type);
+		fprintf(out, "\n");
+		ExprDump(out, expr->left, indent + 1);
+		ExprDump(out, expr->right, indent + 1);
+	} break;
+
+	case Expr_Kind_Assignment:
+	{
+		Expr_Assignment *expr = (Expr_Assignment *)root;
+		fprintf(out, "(=)");
 		ExprTypeDump(out, root->type);
 		fprintf(out, "\n");
 		ExprDump(out, expr->left, indent + 1);
@@ -192,6 +210,12 @@ static Expr *ParseExpression(Parser *parser, int prev_prec);
 static Expr *ParseTerm(Parser *parser) {
 	Token token = NextToken(parser);
 
+	if (token.kind == Token_Kind_IDENTIFIER) {
+		Expr_Identifier *expr = AllocateExpr(parser, Identifier, token.range);
+		expr->name = token.value.string;
+		return &expr->base;
+	}
+
 	if (token.kind == Token_Kind_INTEGER) {
 		Expr_Literal *expr = AllocateExpr(parser, Literal, token.range);
 		expr->value = token.value;
@@ -230,6 +254,17 @@ static Expr *ParseExpression(Parser *parser, int prev_prec) {
 	for (Token token = PeekToken(parser, 0);
 		token.kind != Token_Kind_END;
 		token = PeekToken(parser, 0)) {
+
+		if (token.kind == Token_Kind_EQUALS) {
+			AdvanceToken(parser);
+
+			Expr_Assignment *assign = AllocateExpr(parser, Assignment, token.range);
+			assign->left = expr;
+			assign->right = ParseExpression(parser, 0);
+			
+			expr = &assign->base;
+			break;
+		}
 
 		int prec = BinaryOpPrecedence[token.kind];
 

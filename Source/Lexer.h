@@ -17,6 +17,7 @@ typedef enum Token_Kind {
 	Token_Kind_DIVIDE,
 	Token_Kind_BRACKET_OPEN,
 	Token_Kind_BRACKET_CLOSE,
+	Token_Kind_EQUALS,
 	Token_Kind_IDENTIFIER,
 
 	Token_Kind_END,

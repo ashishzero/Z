@@ -32,8 +32,10 @@ typedef struct Expr_Type_Integer {
 
 typedef enum Expr_Kind {
 	Expr_Kind_Literal,
+	Expr_Kind_Identifier,
 	Expr_Kind_Unary_Operator,
 	Expr_Kind_Binary_Operator,
+	Expr_Kind_Assignment,
 
 	Expr_Kind_COUNT
 } Expr_Kind;
@@ -49,6 +51,11 @@ typedef struct Expr_Literal {
 	Token_Value value;
 } Expr_Literal;
 
+typedef struct Expr_Identifier {
+	Expr   base;
+	String name;
+} Expr_Identifier;
+
 typedef struct Expr_Unary_Operator {
 	Expr  base;
 	Expr *child;
@@ -61,6 +68,12 @@ typedef struct Expr_Binary_Operator {
 	Expr *right;
 	u32   symbol;
 } Expr_Binary_Operator;
+
+typedef struct Expr_Assignment {
+	Expr  base;
+	Expr *left;
+	Expr *right;
+} Expr_Assignment;
 
 //
 //
