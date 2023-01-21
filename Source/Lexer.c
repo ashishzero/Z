@@ -223,8 +223,12 @@ void LexDump(FILE *out, const Token *token) {
 
 	if (token->kind == Token_Kind_INTEGER) {
 		fprintf(out, "(%zu) ", token->value.integer);
+	} else if (token->kind == Token_Kind_IDENTIFIER) {
+		fprintf(out, "(" StrFmt ") ", StrArg(token->value.string));
 	} else if (token->kind == Token_Kind_PLUS || token->kind == Token_Kind_MINUS ||
 		token->kind == Token_Kind_MULTIPLY || token->kind == Token_Kind_MULTIPLY) {
 		fprintf(out, "(%c) ", (char)token->value.symbol);
+	} else if (token->kind == Token_Kind_EQUALS) {
+		fprintf(out, "(=) ");
 	}
 }

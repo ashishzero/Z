@@ -2,7 +2,7 @@
 #include "Lexer.h"
 
 #ifdef BUILD_DEBUG
-//#define PARSER_DUMP_TOKENS
+#define PARSER_DUMP_TOKENS
 #define PARSER_DUMP_EXPR
 #endif
 
